@@ -25,7 +25,9 @@ The included GitHub Actions workflow deploys this static application to GitHub P
 - 81 curated seed tools across 18 colorful categories
 - Add, edit, inspect, favorite, and safely delete tools
 - Drag tools between categories or reorder favorites
-- Create, edit, collapse, and safely delete categories
+- Drag categories by their header to reorder the board, or use **Move earlier / Move later**
+  in the category menu (this also works on touch, where HTML5 drag-and-drop does not)
+- Create, edit, collapse, and safely delete categories from the top bar or the board
 - Instant search, pricing/category filters, sorting, and compact-list view
 - Persistent personal notes and preferences
 - JSON export and validated, confirmation-protected import

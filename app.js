@@ -162,6 +162,7 @@ let query = '';
 let openMenuId = null;
 let activeModal = null;
 let dragToolId = null;
+let dragCategoryId = null;
 let draggedFavoriteId = null;
 let toastTimer;
 
@@ -250,6 +251,7 @@ function render() {
       <div class="top-actions">
         <button class="btn ghost" id="import-btn" title="Restore a JSON backup"><span>↥</span><span class="label">Import</span></button>
         <button class="btn ghost" id="export-btn" title="Download a JSON backup"><span>⇩</span><span class="label">Export</span></button>
+        <button class="btn ghost" id="add-category-top-btn" title="Create a new category"><span>＋</span><span class="label">Add category</span></button>
         <button class="btn primary" id="add-tool-btn"><span>＋</span><span class="label">Add tool</span></button>
       </div>
     </header>
@@ -293,11 +295,12 @@ function renderCategories(visible) {
 }
 
 function renderCategory(category, tools, total) {
-  const menu = openMenuId === category.id ? `<div class="category-menu" role="menu"><button data-category-action="edit" data-category-id="${category.id}">Edit category</button><button data-category-action="collapse" data-category-id="${category.id}">${category.collapsed ? 'Expand category' : 'Collapse category'}</button><button data-category-action="delete" data-category-id="${category.id}" class="danger-text">Delete category</button></div>` : '';
+  const index = state.categories.findIndex(c => c.id === category.id);
+  const menu = openMenuId === category.id ? `<div class="category-menu" role="menu"><button data-category-action="edit" data-category-id="${category.id}">Edit category</button><button data-category-action="collapse" data-category-id="${category.id}">${category.collapsed ? 'Expand category' : 'Collapse category'}</button><button data-category-action="move-earlier" data-category-id="${category.id}" ${index <= 0 ? 'disabled' : ''}>Move earlier</button><button data-category-action="move-later" data-category-id="${category.id}" ${index === state.categories.length - 1 ? 'disabled' : ''}>Move later</button><button data-category-action="delete" data-category-id="${category.id}" class="danger-text">Delete category</button></div>` : '';
   const list = state.preferences.view === 'list' ? tools.map(tool => renderTool(tool, true)).join('') : tools.map(tool => renderTool(tool)).join('');
-  return `<article class="category-card ${category.collapsed ? 'collapsed' : ''}" style="--accent:${esc(category.color)}" data-category-drop="${category.id}">
+  return `<article class="category-card ${category.collapsed ? 'collapsed' : ''}" style="--accent:${esc(category.color)}" data-category-drop="${category.id}" data-category-id="${category.id}" draggable="true">
     <header class="category-header">
-      <span class="category-icon" aria-hidden="true">${esc(category.icon)}</span><div class="category-heading"><div class="category-title-row"><span class="category-title">${esc(category.name)}</span><span class="tool-count">${total}</span></div><p class="category-description">${esc(category.description)}</p></div>
+      <span class="category-grip" aria-hidden="true" title="Drag to reorder categories">⠿</span><span class="category-icon" aria-hidden="true">${esc(category.icon)}</span><div class="category-heading"><div class="category-title-row"><span class="category-title">${esc(category.name)}</span><span class="tool-count">${total}</span></div><p class="category-description">${esc(category.description)}</p></div>
       <div class="category-menu-wrap"><button class="menu-trigger" aria-label="Manage ${esc(category.name)}" aria-expanded="${openMenuId === category.id}" data-menu-id="${category.id}">•••</button>${menu}</div>
     </header>
     ${category.collapsed ? '' : `<div class="tools-list">${list || `<p class="category-description" style="padding:7px 4px">No matching tools here yet.</p>`}<button class="add-tool" data-add-tool-category="${category.id}">＋ Add tool</button></div>`}
@@ -335,6 +338,7 @@ function bindAppEvents() {
   document.querySelector('#add-tool-btn')?.addEventListener('click', () => openToolForm());
   document.querySelectorAll('[data-add-tool-category]').forEach(button => button.addEventListener('click', () => openToolForm(null, button.dataset.addToolCategory)));
   document.querySelector('#add-category-btn')?.addEventListener('click', () => openCategoryForm());
+  document.querySelector('#add-category-top-btn')?.addEventListener('click', () => openCategoryForm());
   document.querySelector('#export-btn')?.addEventListener('click', exportData);
   document.querySelector('#import-btn')?.addEventListener('click', () => importInput.click());
   document.querySelectorAll('[data-menu-id]').forEach(button => button.addEventListener('click', event => { event.stopPropagation(); openMenuId = openMenuId === button.dataset.menuId ? null : button.dataset.menuId; render(); }));
@@ -349,9 +353,26 @@ function bindAppEvents() {
     card.addEventListener('drop', event => { event.preventDefault(); event.stopPropagation(); if (dragToolId && dragToolId !== card.dataset.toolId) moveTool(dragToolId, card.dataset.categoryId, card.dataset.toolId); });
   });
   document.querySelectorAll('[data-category-drop]').forEach(card => {
-    card.addEventListener('dragover', event => { if (dragToolId) { event.preventDefault(); card.classList.add('drag-over'); } });
-    card.addEventListener('dragleave', event => { if (!card.contains(event.relatedTarget)) card.classList.remove('drag-over'); });
-    card.addEventListener('drop', event => { event.preventDefault(); if (dragToolId) moveTool(dragToolId, card.dataset.categoryDrop); });
+    card.addEventListener('dragstart', event => {
+      if (event.target.closest('.tool-card')) return;
+      dragCategoryId = card.dataset.categoryId; card.classList.add('dragging-category');
+      event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/x-ai-category', dragCategoryId);
+    });
+    card.addEventListener('dragend', () => { dragCategoryId = null; clearDropHints(); });
+    card.addEventListener('dragover', event => {
+      if (dragToolId) { event.preventDefault(); card.classList.add('drag-over'); return; }
+      if (!dragCategoryId || dragCategoryId === card.dataset.categoryId) return;
+      event.preventDefault();
+      const box = card.getBoundingClientRect();
+      const after = event.clientX > box.left + box.width / 2;
+      card.classList.toggle('drop-after', after); card.classList.toggle('drop-before', !after);
+    });
+    card.addEventListener('dragleave', event => { if (!card.contains(event.relatedTarget)) card.classList.remove('drag-over', 'drop-before', 'drop-after'); });
+    card.addEventListener('drop', event => {
+      event.preventDefault();
+      if (dragToolId) { moveTool(dragToolId, card.dataset.categoryDrop); return; }
+      if (dragCategoryId && dragCategoryId !== card.dataset.categoryId) moveCategory(dragCategoryId, card.dataset.categoryId, card.classList.contains('drop-after'));
+    });
   });
   document.querySelector('#notes-area')?.addEventListener('input', event => { state.notes = event.target.value; persist(); const status = document.querySelector('#notes-status'); if (status) status.textContent = 'Saved just now'; });
   bindFavoriteDnD();
@@ -375,7 +396,25 @@ function moveTool(toolId, categoryId, beforeId = null) {
   let insertAt;
   if (beforeId) insertAt = without.findIndex(t => t.id === beforeId);
   else { const matching = without.map((t, index) => [t, index]).filter(([t]) => t.categoryId === categoryId); insertAt = matching.length ? matching.at(-1)[1] + 1 : without.length; }
-  without.splice(insertAt < 0 ? without.length : insertAt, 0, tool); state.tools = without; persist(); render(); showToast('Tool placement saved.');
+  without.splice(insertAt < 0 ? without.length : insertAt, 0, tool); state.tools = without; dragToolId = null; clearDropHints(); persist(); render(); showToast('Tool placement saved.');
+}
+
+function clearDropHints() { document.querySelectorAll('.dragging-category,.drop-before,.drop-after,.drag-over').forEach(el => el.classList.remove('dragging-category', 'drop-before', 'drop-after', 'drag-over')); }
+
+function reorderCategories(id, targetIndex) {
+  const list = [...state.categories];
+  const from = list.findIndex(c => c.id === id);
+  if (from < 0 || targetIndex < 0 || targetIndex >= list.length || targetIndex === from) return;
+  const [moved] = list.splice(from, 1);
+  list.splice(targetIndex, 0, moved);
+  state.categories = list; dragCategoryId = null; clearDropHints(); persist(); render(); showToast(`${moved.name} moved.`);
+}
+
+function moveCategory(id, targetId, after = false) {
+  const without = state.categories.filter(c => c.id !== id);
+  const anchor = without.findIndex(c => c.id === targetId);
+  if (anchor < 0) return;
+  reorderCategories(id, anchor + (after ? 1 : 0));
 }
 
 function handleCategoryAction(action, id) {
@@ -383,6 +422,8 @@ function handleCategoryAction(action, id) {
   openMenuId = null;
   if (action === 'edit') openCategoryForm(category);
   if (action === 'collapse') { category.collapsed = !category.collapsed; persist(); render(); }
+  if (action === 'move-earlier') reorderCategories(id, state.categories.indexOf(category) - 1);
+  if (action === 'move-later') reorderCategories(id, state.categories.indexOf(category) + 1);
   if (action === 'delete') { const amount = state.tools.filter(t => t.categoryId === id).length; openConfirm({ title: `Delete ${category.name}?`, text: amount ? `This category has ${amount} tool${amount === 1 ? '' : 's'}. Deleting it will also remove those tools. This cannot be undone.` : 'This empty category will be removed.', confirmLabel: 'Delete category', danger: true, onConfirm: () => { state.categories = state.categories.filter(c => c.id !== id); state.tools = state.tools.filter(t => t.categoryId !== id); state.favoritesOrder = favoriteOrder(); if (state.preferences.category === id) state.preferences.category = 'All'; persist(); closeModal(); render(); showToast('Category deleted.'); } }); }
 }
 
