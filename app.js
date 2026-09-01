@@ -21,6 +21,17 @@ const KNOWN_WEBSITES = {
   'comfy.org': { name: 'ComfyUI', categoryId: 'image', description: 'Node-based interface for advanced image workflows.', rating: 5, pricing: 'Open Source', tags: ['nodes', 'local'] }
 };
 
+const MODEL_QUALITY = {
+  // Artificial Analysis Intelligence Index (0-100) and blended cost per task (USD),
+  // captured from the LLM API Providers Leaderboard at https://artificialanalysis.ai on 2026-09-01.
+  // Consumer products map to the flagship reasoning tier of the model that powers them.
+  'chatgpt': { quality: 57, costPerTask: 0.43, poweredBy: 'GPT-5.6 Sol (high) — OpenAI' },
+  'claude': { quality: 61, costPerTask: 1.23, poweredBy: 'Claude Opus 5 (high) — Anthropic' },
+  'gemini': { quality: 56, costPerTask: 0.40, poweredBy: 'Gemini 3.7 Flash (high) — Google' },
+  'grok': { quality: 61, costPerTask: 0.94, poweredBy: 'Grok 4.6 (high) — xAI' },
+  'microsoft copilot': { quality: 56, costPerTask: 0.29, poweredBy: 'GPT-5.6 Sol (medium) — via OpenAI' }
+};
+
 const seedCategories = [
   ['chat', 'AI Chat / Assistants', 'Everyday reasoning, conversations, and multimodal help.', '✦', '#ad67ff'],
   ['research', 'Search / Research', 'Evidence, citations, papers, and deeper discovery.', '⌕', '#4c9dff'],
@@ -126,6 +137,11 @@ const seedEntries = [
   ['creative3d','Spline AI','Prompt-to-3D experiments for interactive scenes.','https://spline.design/ai',4,'Freemium','3d,interactive']
 ];
 
+const NAME_LIBRARY = new Map(seedEntries.map(([categoryId, name, description, url, rating, pricing, tags]) => [
+  name.toLowerCase(),
+  { name, categoryId, description, url, rating, pricing, tags: tags.split(',').filter(Boolean), ...(MODEL_QUALITY[name.toLowerCase()] || {}) }
+]));
+
 function makeSeed() {
   const now = Date.now();
   return {
@@ -135,7 +151,8 @@ function makeSeed() {
       categoryId, name, description, url, rating, pricing,
       tags: tags.split(',').filter(Boolean), notes: '',
       favorite: ['ChatGPT', 'Claude', 'Perplexity', 'Cursor', 'n8n'].includes(name),
-      addedAt: now - (seedEntries.length - index) * 3600000
+      addedAt: now - (seedEntries.length - index) * 3600000,
+      ...(MODEL_QUALITY[name.toLowerCase()] || {})
     })),
     notes: 'A few things to explore:\n• Build a repeatable research workflow with NotebookLM + Perplexity\n• Test an n8n agent for weekly industry summaries\n• Compare image workflows: Midjourney, FLUX, and ComfyUI',
     favoritesOrder: ['seed-001', 'seed-002', 'seed-007', 'seed-038', 'seed-045'],
@@ -185,6 +202,19 @@ function prettyPrice(pricing) { return pricing === 'Free / Open Source' ? 'Free 
 function categoryById(id) { return state.categories.find(c => c.id === id); }
 function toolById(id) { return state.tools.find(t => t.id === id); }
 function normalizedUrl(input) { if (!input) return ''; const candidate = input.trim(); if (!candidate) return ''; const url = new URL(/^https?:\/\//i.test(candidate) ? candidate : `https://${candidate}`); if (!['http:', 'https:'].includes(url.protocol)) throw new Error('Please enter a valid http(s) website URL.'); return url.href; }
+function nameInfo(input) {
+  const query = String(input || '').trim().toLowerCase();
+  if (query.length < 2) return null;
+  let match = NAME_LIBRARY.get(query);
+  if (!match) {
+    const candidates = [...NAME_LIBRARY.entries()].filter(([key]) => key.startsWith(query) || key.includes(query));
+    if (candidates.length === 1) match = candidates[0][1];
+  }
+  if (!match) return null;
+  let favicon = '';
+  try { favicon = match.url ? `${new URL(match.url).origin}/favicon.ico` : ''; } catch { /* keep default favicon */ }
+  return { ...match, favicon, source: `Matched “${match.name}” in your tool library — details filled in.` };
+}
 function websiteInfo(input) {
   const url = new URL(normalizedUrl(input));
   const hostname = url.hostname.replace(/^www\./, '').toLowerCase();
@@ -195,16 +225,38 @@ function websiteInfo(input) {
   const tags = hostname.split(/[.-]/).filter(part => part.length > 2 && !['www', 'com', 'ai', 'app', 'io', 'co', 'dev', 'net', 'org'].includes(part)).slice(0, 3);
   return { name: readable, description: `AI tool and resources from ${hostname}.`, categoryId: '', rating: 3, pricing: 'Freemium', tags, favicon, source: 'Smart defaults created from the website address. You can refine any field.' };
 }
+function fieldFiller(form) {
+  return (field, value, formatter = value => value) => { const control = form.elements[field]; if (control && !control.dataset.manual && (!control.value || control.dataset.auto === 'true' || !form.dataset.enriched)) { control.value = formatter(value); control.dataset.auto = 'true'; } };
+}
+
 function applyWebsiteInfo(form) {
   const urlField = form.elements.url; const status = form.querySelector('#autofill-status');
-  if (!urlField?.value.trim()) { if (status) status.textContent = 'Add a website and the dashboard will suggest the rest.'; return; }
+  if (!urlField?.value.trim()) { if (!form.dataset.enriched && status) status.textContent = 'Type a tool name above, or paste a website here to auto-fill details.'; return; }
   let info; try { info = websiteInfo(urlField.value); } catch { if (status) status.textContent = 'Enter a complete website address to auto-fill details.'; return; }
-  const fill = (field, value, formatter = value => value) => { const control = form.elements[field]; if (control && !control.dataset.manual && (!control.value || control.dataset.auto === 'true' || !form.dataset.enriched)) { control.value = formatter(value); control.dataset.auto = 'true'; } };
+  const fill = fieldFiller(form);
   fill('name', info.name); fill('description', info.description); fill('tags', info.tags, value => value.join(', ')); fill('rating', info.rating, String); fill('pricing', info.pricing);
   const category = form.elements.categoryId; if (category && info.categoryId && (!category.dataset.manual || category.dataset.auto === 'true')) { category.value = info.categoryId; category.dataset.auto = 'true'; }
   const favicon = form.querySelector('[name="favicon"]'); if (favicon) favicon.value = info.favicon;
   form.dataset.enriched = 'true';
   if (status) status.textContent = info.source;
+}
+
+function applyNameInfo(form) {
+  const nameField = form.elements.name; const status = form.querySelector('#autofill-status');
+  const info = nameInfo(nameField?.value);
+  const quality = form.querySelector('[name="quality"]'); const costPerTask = form.querySelector('[name="costPerTask"]'); const poweredBy = form.querySelector('[name="poweredBy"]');
+  if (!info) {
+    if (quality) quality.value = ''; if (costPerTask) costPerTask.value = ''; if (poweredBy) poweredBy.value = '';
+    if (status && !form.dataset.enriched) status.textContent = 'Type a known tool name to auto-fill its details, or paste a website below.';
+    return;
+  }
+  const fill = fieldFiller(form);
+  fill('description', info.description); fill('url', info.url); fill('tags', info.tags, value => value.join(', ')); fill('rating', info.rating, String); fill('pricing', info.pricing);
+  const category = form.elements.categoryId; if (category && info.categoryId && (!category.dataset.manual || category.dataset.auto === 'true')) { category.value = info.categoryId; category.dataset.auto = 'true'; }
+  const favicon = form.querySelector('[name="favicon"]'); if (favicon && info.favicon) favicon.value = info.favicon;
+  if (quality) quality.value = info.quality ?? ''; if (costPerTask) costPerTask.value = info.costPerTask ?? ''; if (poweredBy) poweredBy.value = info.poweredBy ?? '';
+  form.dataset.enriched = 'true';
+  if (status) status.textContent = info.quality != null ? `${info.source} Rated ${info.quality}/100 quality · ~$${info.costPerTask.toFixed(2)}/task (artificialanalysis.ai).` : info.source;
 }
 
 function showToast(message) {
@@ -226,6 +278,7 @@ function allVisibleTools() {
   if (state.preferences.sort === 'rating') items = [...items].sort((a, b) => b.rating - a.rating || a.name.localeCompare(b.name));
   if (state.preferences.sort === 'recent') items = [...items].sort((a, b) => b.addedAt - a.addedAt);
   if (state.preferences.sort === 'favorites') items = [...items].sort((a, b) => Number(b.favorite) - Number(a.favorite) || a.name.localeCompare(b.name));
+  if (state.preferences.sort === 'quality') items = [...items].sort((a, b) => (b.quality ?? -1) - (a.quality ?? -1) || a.name.localeCompare(b.name));
   return items;
 }
 
@@ -271,7 +324,7 @@ function render() {
     <section class="toolbar" aria-label="Filters and sorting">
       <div class="filters">${FILTERS.map(filter => `<button class="filter ${state.preferences.pricing === filter ? 'active' : ''}" data-filter="${esc(filter)}">${esc(filter)}</button>`).join('')}</div>
       <select id="category-filter" class="select" aria-label="Filter by category"><option value="All">All categories</option>${categoryOptions}</select>
-      <select id="sort-select" class="select" aria-label="Sort tools"><option value="manual" ${state.preferences.sort === 'manual' ? 'selected' : ''}>Custom order</option><option value="name" ${state.preferences.sort === 'name' ? 'selected' : ''}>Name</option><option value="rating" ${state.preferences.sort === 'rating' ? 'selected' : ''}>Rating</option><option value="recent" ${state.preferences.sort === 'recent' ? 'selected' : ''}>Recently added</option><option value="favorites" ${state.preferences.sort === 'favorites' ? 'selected' : ''}>Favorites first</option></select>
+      <select id="sort-select" class="select" aria-label="Sort tools"><option value="manual" ${state.preferences.sort === 'manual' ? 'selected' : ''}>Custom order</option><option value="name" ${state.preferences.sort === 'name' ? 'selected' : ''}>Name</option><option value="rating" ${state.preferences.sort === 'rating' ? 'selected' : ''}>Rating</option><option value="recent" ${state.preferences.sort === 'recent' ? 'selected' : ''}>Recently added</option><option value="favorites" ${state.preferences.sort === 'favorites' ? 'selected' : ''}>Favorites first</option><option value="quality" ${state.preferences.sort === 'quality' ? 'selected' : ''}>Quality (artificialanalysis.ai)</option></select>
       <div class="view-toggle" aria-label="View mode"><button title="Dashboard view" data-view="grid" class="${state.preferences.view === 'grid' ? 'active' : ''}">▦</button><button title="Compact list" data-view="list" class="${state.preferences.view === 'list' ? 'active' : ''}">☷</button></div>
     </section>
     ${visible.length || (!query && state.preferences.pricing === 'All' && state.preferences.category === 'All') ? renderCategories(visible) : `<section class="empty-search"><strong>No tools match those filters.</strong>Try another search term, clear a filter, or add a tool to your library.</section>`}
@@ -283,13 +336,12 @@ function render() {
 }
 
 function renderCategories(visible) {
-  const visibleIds = new Set(visible.map(t => t.id));
   const cards = state.categories.map(category => {
-    const allTools = state.tools.filter(t => t.categoryId === category.id);
-    const tools = allTools.filter(t => visibleIds.has(t.id));
+    const total = state.tools.filter(t => t.categoryId === category.id).length;
+    const tools = visible.filter(t => t.categoryId === category.id);
     const narrowed = Boolean(query || state.preferences.pricing !== 'All' || state.preferences.category !== 'All');
     if (narrowed && !tools.length) return '';
-    return renderCategory(category, tools, allTools.length);
+    return renderCategory(category, tools, total);
   }).join('');
   return `<section class="category-grid" aria-label="AI tool categories">${cards}<button class="add-category" id="add-category-btn"><span class="plus-circle">＋</span><span>Add a category</span></button></section>`;
 }
@@ -310,9 +362,10 @@ function renderCategory(category, tools, total) {
 function renderTool(tool, isList = false) {
   const stars = '★'.repeat(Math.max(0, Math.min(5, Number(tool.rating) || 0))) + '☆'.repeat(Math.max(0, 5 - Math.min(5, Number(tool.rating) || 0)));
   const tags = (tool.tags || []).slice(0, 2).map(tag => `<span class="tag">${esc(tag)}</span>`).join('');
+  const quality = tool.quality != null ? `<span class="quality-badge" title="Artificial Analysis Intelligence Index${tool.poweredBy ? ' — ' + esc(tool.poweredBy) : ''}">AA ${tool.quality}</span><span class="cost-badge" title="Blended cost per task">$${Number(tool.costPerTask).toFixed(2)}/task</span>` : '';
   return `<article class="tool-card ${isList ? 'list-card' : ''}" draggable="true" data-tool-id="${tool.id}" data-category-id="${tool.categoryId}" tabindex="0" aria-label="${esc(tool.name)}, rating ${tool.rating} out of 5">
     ${toolIcon(tool)}<div class="tool-main"><div class="tool-name">${esc(tool.name)}</div><div class="tool-description">${esc(tool.description)}</div>${tags ? `<div class="tool-tags">${tags}</div>` : ''}</div>
-    <div class="tool-meta"><span class="stars" aria-label="${tool.rating} out of 5 stars">${stars}</span><span class="price-label"><i class="pricing-dot ${pricingClass(tool.pricing)}"></i>${esc(prettyPrice(tool.pricing))}</span></div>
+    <div class="tool-meta"><span class="stars" aria-label="${tool.rating} out of 5 stars">${stars}</span><span class="price-label"><i class="pricing-dot ${pricingClass(tool.pricing)}"></i>${esc(prettyPrice(tool.pricing))}</span>${quality ? `<span class="quality-row">${quality}</span>` : ''}</div>
     <button class="favorite-toggle ${tool.favorite ? 'is-favorite' : ''}" data-favorite-id="${tool.id}" title="${tool.favorite ? 'Remove from favorites' : 'Add to favorites'}" aria-label="${tool.favorite ? 'Remove from favorites' : 'Add to favorites'}">${tool.favorite ? '★' : '☆'}</button>
   </article>`;
 }
@@ -431,22 +484,28 @@ function openToolDetail(id) {
   const tool = toolById(id); const category = categoryById(tool?.categoryId); if (!tool || !category) return;
   const tags = (tool.tags || []).length ? tool.tags.map(tag => `<span class="detail-pill">#${esc(tag)}</span>`).join('') : '<span class="detail-pill">No tags yet</span>';
   activeModal = 'detail';
-  modalRoot.innerHTML = `<div class="modal-backdrop" data-close-backdrop><section class="modal" role="dialog" aria-modal="true" aria-labelledby="detail-title"><header class="modal-header"><div><h2 id="detail-title">Tool details</h2><p>Keep the useful context close to the tool.</p></div><button class="modal-close" data-close-modal aria-label="Close">×</button></header><div class="modal-body"><div class="detail-hero">${toolIcon(tool, 'detail-icon')}<div class="detail-info"><h3>${esc(tool.name)}</h3><p>${esc(category.name)} · <span class="stars">${'★'.repeat(tool.rating)}${'☆'.repeat(5 - tool.rating)}</span></p></div></div><div class="detail-section"><h4>Description</h4><p>${esc(tool.description || 'No description added.')}</p></div><div class="detail-section"><h4>Pricing</h4><div class="detail-meta"><span class="detail-pill"><i class="pricing-dot ${pricingClass(tool.pricing)}"></i> ${esc(tool.pricing)}</span><span class="detail-pill">★ ${tool.rating}/5 rating</span>${tool.favorite ? '<span class="detail-pill">★ In my tool stack</span>' : ''}</div></div><div class="detail-section"><h4>Tags</h4><div class="detail-meta">${tags}</div></div>${tool.notes ? `<div class="detail-section"><h4>Personal notes</h4><p>${esc(tool.notes)}</p></div>` : ''}<div class="detail-section"><h4>Website</h4><p>${tool.url ? `<a class="tool-url" href="${esc(tool.url)}" target="_blank" rel="noopener noreferrer">${esc(tool.url.replace(/^https?:\/\//, ''))} ↗</a>` : 'No website added.'}</p></div><div class="detail-actions"><button class="btn primary" data-open-tool-url="${tool.id}" ${tool.url ? '' : 'disabled'}>Open website ↗</button><button class="btn" data-edit-tool="${tool.id}">Edit</button><button class="btn" data-detail-favorite="${tool.id}">${tool.favorite ? '★ Unfavorite' : '☆ Favorite'}</button><button class="btn danger" data-delete-tool="${tool.id}">Delete</button></div></div></section></div>`;
+  modalRoot.innerHTML = `<div class="modal-backdrop" data-close-backdrop><section class="modal" role="dialog" aria-modal="true" aria-labelledby="detail-title"><header class="modal-header"><div><h2 id="detail-title">Tool details</h2><p>Keep the useful context close to the tool.</p></div><button class="modal-close" data-close-modal aria-label="Close">×</button></header><div class="modal-body"><div class="detail-hero">${toolIcon(tool, 'detail-icon')}<div class="detail-info"><h3>${esc(tool.name)}</h3><p>${esc(category.name)} · <span class="stars">${'★'.repeat(tool.rating)}${'☆'.repeat(5 - tool.rating)}</span></p></div></div><div class="detail-section"><h4>Description</h4><p>${esc(tool.description || 'No description added.')}</p></div><div class="detail-section"><h4>Pricing</h4><div class="detail-meta"><span class="detail-pill"><i class="pricing-dot ${pricingClass(tool.pricing)}"></i> ${esc(tool.pricing)}</span><span class="detail-pill">★ ${tool.rating}/5 rating</span>${tool.favorite ? '<span class="detail-pill">★ In my tool stack</span>' : ''}</div></div>${tool.quality != null ? `<div class="detail-section"><h4>Quality &amp; cost</h4><div class="detail-meta"><span class="detail-pill">${tool.quality}/100 intelligence index</span><span class="detail-pill">~$${Number(tool.costPerTask).toFixed(2)} per task</span></div><p class="detail-source">${tool.poweredBy ? `Powered by ${esc(tool.poweredBy)}. ` : ''}Source: <a class="tool-url" href="https://artificialanalysis.ai" target="_blank" rel="noopener noreferrer">artificialanalysis.ai ↗</a></p></div>` : ''}<div class="detail-section"><h4>Tags</h4><div class="detail-meta">${tags}</div></div>${tool.notes ? `<div class="detail-section"><h4>Personal notes</h4><p>${esc(tool.notes)}</p></div>` : ''}<div class="detail-section"><h4>Website</h4><p>${tool.url ? `<a class="tool-url" href="${esc(tool.url)}" target="_blank" rel="noopener noreferrer">${esc(tool.url.replace(/^https?:\/\//, ''))} ↗</a>` : 'No website added.'}</p></div><div class="detail-actions"><button class="btn primary" data-open-tool-url="${tool.id}" ${tool.url ? '' : 'disabled'}>Open website ↗</button><button class="btn" data-edit-tool="${tool.id}">Edit</button><button class="btn" data-detail-favorite="${tool.id}">${tool.favorite ? '★ Unfavorite' : '☆ Favorite'}</button><button class="btn danger" data-delete-tool="${tool.id}">Delete</button></div></div></section></div>`;
   bindModalEvents();
 }
 
 function openToolForm(tool = null, preselectedCategory = null) {
   activeModal = 'tool-form'; const isEdit = Boolean(tool); const defaultCategory = tool?.categoryId || preselectedCategory || state.categories[0]?.id || '';
-  modalRoot.innerHTML = `<div class="modal-backdrop" data-close-backdrop><section class="modal" role="dialog" aria-modal="true" aria-labelledby="tool-form-title"><header class="modal-header"><div><h2 id="tool-form-title">${isEdit ? 'Edit tool' : 'Add a tool'}</h2><p>${isEdit ? 'Update this entry in your library.' : 'Add a useful AI tool to your personal map.'}</p></div><button class="modal-close" data-close-modal aria-label="Close">×</button></header><form id="tool-form"><div class="modal-body"><div class="form-grid"><div class="field"><label for="tool-name">Tool name *</label><input id="tool-name" name="name" required maxlength="70" value="${esc(tool?.name || '')}" placeholder="e.g. ComfyUI" /></div><div class="field"><label for="tool-category">Category *</label><select id="tool-category" name="categoryId" required>${state.categories.map(c => `<option value="${esc(c.id)}" ${c.id === defaultCategory ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select></div><div class="field full"><label for="tool-description">Description *</label><textarea id="tool-description" name="description" required maxlength="240" placeholder="What is this tool useful for?">${esc(tool?.description || '')}</textarea></div><div class="field full"><label for="tool-url">Website URL</label><input id="tool-url" name="url" maxlength="500" type="text" value="${esc(tool?.url || '')}" placeholder="https://example.com" /></div><div class="field"><label for="tool-rating">Rating</label><select id="tool-rating" name="rating">${[5,4,3,2,1].map(n => `<option value="${n}" ${Number(tool?.rating || 5) === n ? 'selected' : ''}>${n} / 5</option>`).join('')}</select></div><div class="field"><label for="tool-pricing">Pricing</label><select id="tool-pricing" name="pricing">${PRICING.map(p => `<option value="${esc(p)}" ${tool?.pricing === p ? 'selected' : ''}>${esc(p)}</option>`).join('')}</select></div><div class="field full"><label for="tool-tags">Tags</label><input id="tool-tags" name="tags" maxlength="160" value="${esc((tool?.tags || []).join(', '))}" placeholder="e.g. image, local, workflow" /></div><div class="field full"><label for="tool-notes">Personal notes</label><textarea id="tool-notes" name="notes" maxlength="1000" placeholder="Why is this useful to you?">${esc(tool?.notes || '')}</textarea></div><label class="check-field"><input name="favorite" type="checkbox" ${tool?.favorite ? 'checked' : ''}/> Add to my tool stack</label></div><p id="form-error" class="form-error" role="alert"></p></div><footer class="modal-footer"><button type="button" class="btn" data-close-modal>Cancel</button><button type="submit" class="btn primary">${isEdit ? 'Save changes' : 'Add tool'}</button></footer></form></section></div>`;
+  modalRoot.innerHTML = `<div class="modal-backdrop" data-close-backdrop><section class="modal" role="dialog" aria-modal="true" aria-labelledby="tool-form-title"><header class="modal-header"><div><h2 id="tool-form-title">${isEdit ? 'Edit tool' : 'Add a tool'}</h2><p>${isEdit ? 'Update this entry in your library.' : 'Add a useful AI tool to your personal map.'}</p></div><button class="modal-close" data-close-modal aria-label="Close">×</button></header><form id="tool-form"><div class="modal-body"><div class="form-grid"><div class="field full"><label for="tool-name">Tool name *</label><input id="tool-name" name="name" required maxlength="70" value="${esc(tool?.name || '')}" placeholder="e.g. ComfyUI — known tools fill in the rest" autocomplete="off" /></div><div class="field"><label for="tool-category">Category *</label><select id="tool-category" name="categoryId" required>${state.categories.map(c => `<option value="${esc(c.id)}" ${c.id === defaultCategory ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select></div><div class="field full"><label for="tool-description">Description *</label><textarea id="tool-description" name="description" required maxlength="240" placeholder="What is this tool useful for?">${esc(tool?.description || '')}</textarea></div><div class="field full"><label for="tool-url">Website URL (optional)</label><input id="tool-url" name="url" maxlength="500" type="text" value="${esc(tool?.url || '')}" placeholder="https://example.com" /></div><div class="field"><label for="tool-rating">Rating</label><select id="tool-rating" name="rating">${[5,4,3,2,1].map(n => `<option value="${n}" ${Number(tool?.rating || 5) === n ? 'selected' : ''}>${n} / 5</option>`).join('')}</select></div><div class="field"><label for="tool-pricing">Pricing</label><select id="tool-pricing" name="pricing">${PRICING.map(p => `<option value="${esc(p)}" ${tool?.pricing === p ? 'selected' : ''}>${esc(p)}</option>`).join('')}</select></div><div class="field full"><label for="tool-tags">Tags</label><input id="tool-tags" name="tags" maxlength="160" value="${esc((tool?.tags || []).join(', '))}" placeholder="e.g. image, local, workflow" /></div><div class="field full"><label for="tool-notes">Personal notes</label><textarea id="tool-notes" name="notes" maxlength="1000" placeholder="Why is this useful to you?">${esc(tool?.notes || '')}</textarea></div><label class="check-field"><input name="favorite" type="checkbox" ${tool?.favorite ? 'checked' : ''}/> Add to my tool stack</label></div><p id="form-error" class="form-error" role="alert"></p></div><footer class="modal-footer"><button type="button" class="btn" data-close-modal>Cancel</button><button type="submit" class="btn primary">${isEdit ? 'Save changes' : 'Add tool'}</button></footer></form></section></div>`;
   bindModalEvents();
   const toolForm = document.querySelector('#tool-form');
   const urlField = toolForm?.elements.url;
   const faviconField = document.createElement('input');
   faviconField.name = 'favicon'; faviconField.type = 'hidden'; faviconField.value = tool?.favicon || '';
   toolForm?.append(faviconField);
-  urlField?.insertAdjacentHTML('afterend', '<p id="autofill-status" class="autofill-status">Add a website and the dashboard will suggest the rest.</p>');
+  [['quality', tool?.quality], ['costPerTask', tool?.costPerTask], ['poweredBy', tool?.poweredBy]].forEach(([field, value]) => {
+    const hidden = document.createElement('input'); hidden.name = field; hidden.type = 'hidden'; hidden.value = value ?? ''; toolForm?.append(hidden);
+  });
+  const nameField = toolForm?.elements.name;
+  nameField?.insertAdjacentHTML('afterend', '<p id="autofill-status" class="autofill-status">Type a tool name from your library — the rest fills in automatically. New tools still need their own details.</p>');
   let enrichmentTimer;
+  nameField?.addEventListener('input', () => { clearTimeout(enrichmentTimer); enrichmentTimer = setTimeout(() => applyNameInfo(toolForm), 350); });
   urlField?.addEventListener('input', () => { clearTimeout(enrichmentTimer); enrichmentTimer = setTimeout(() => applyWebsiteInfo(toolForm), 550); });
+  if (isEdit) { const status = document.querySelector('#autofill-status'); if (status) status.textContent = tool.quality != null ? `Rated ${tool.quality}/100 quality · ~$${Number(tool.costPerTask).toFixed(2)}/task (artificialanalysis.ai).` : 'Edit any field — matching a catalog name will refresh the rest.'; }
   ['name', 'description', 'tags', 'rating', 'pricing'].forEach(field => ['input', 'change'].forEach(type => toolForm?.elements[field]?.addEventListener(type, event => { event.currentTarget.dataset.manual = 'true'; event.currentTarget.dataset.auto = 'false'; })));
   toolForm?.elements.categoryId?.addEventListener('change', event => { event.currentTarget.dataset.manual = 'true'; event.currentTarget.dataset.auto = 'false'; });
   document.querySelector('#tool-form')?.addEventListener('submit', event => {
@@ -455,7 +514,8 @@ function openToolForm(tool = null, preselectedCategory = null) {
     if (!name || !description || !categoryById(categoryId)) { error.textContent = 'Please complete the name, category, and description.'; return; }
     const duplicate = state.tools.find(item => item.name.toLowerCase() === name.toLowerCase() && item.id !== tool?.id); if (duplicate) { error.textContent = 'A tool with this name is already in your library.'; return; }
     let url; try { url = normalizedUrl(form.get('url')); } catch (err) { error.textContent = err.message; return; }
-    const data = { name, categoryId, description, url, favicon: String(form.get('favicon') || (url ? `${new URL(url).origin}/favicon.ico` : '')), rating: Number(form.get('rating')), pricing: form.get('pricing'), tags: String(form.get('tags')).split(',').map(t => t.trim()).filter(Boolean).slice(0, 8), notes: String(form.get('notes')).trim(), favorite: form.get('favorite') === 'on' };
+    const quality = form.get('quality') ? Number(form.get('quality')) : null; const costPerTask = form.get('costPerTask') ? Number(form.get('costPerTask')) : null; const poweredBy = String(form.get('poweredBy') || '').trim() || null;
+    const data = { name, categoryId, description, url, favicon: String(form.get('favicon') || (url ? `${new URL(url).origin}/favicon.ico` : '')), rating: Number(form.get('rating')), pricing: form.get('pricing'), tags: String(form.get('tags')).split(',').map(t => t.trim()).filter(Boolean).slice(0, 8), notes: String(form.get('notes')).trim(), favorite: form.get('favorite') === 'on', quality, costPerTask, poweredBy };
     if (tool) { Object.assign(tool, data); } else { const entry = { id: uid('tool'), ...data, addedAt: Date.now() }; state.tools.push(entry); tool = entry; }
     state.favoritesOrder = favoriteOrder().filter(id => id !== tool.id); if (tool.favorite) state.favoritesOrder.unshift(tool.id); persist(); closeModal(); render(); showToast(isEdit ? 'Tool updated.' : 'Tool added to your library.');
   });
@@ -486,7 +546,7 @@ function closeModal() { activeModal = null; modalRoot.innerHTML = ''; }
 
 function exportData() { const payload = { version: 1, exportedAt: new Date().toISOString(), ...state }; const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' }); const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = `ai-tools-overview-backup-${new Date().toISOString().slice(0, 10)}.json`; document.body.append(link); link.click(); link.remove(); URL.revokeObjectURL(link.href); showToast('Backup downloaded.'); }
 
-importInput.addEventListener('change', event => { const [file] = event.target.files; event.target.value = ''; if (!file) return; if (file.size > 5 * 1024 * 1024) { showToast('That backup is larger than 5 MB and was not imported.'); return; } const reader = new FileReader(); reader.onload = () => { try { const imported = JSON.parse(reader.result); if (!validData(imported)) throw new Error('This does not look like an AI Tools Overview backup.'); const normalized = { categories: imported.categories.map(c => ({ id: String(c.id), name: String(c.name).slice(0, 45), description: String(c.description || '').slice(0, 160), icon: String(c.icon || '✦').slice(0, 4), color: /^#[0-9a-f]{6}$/i.test(c.color || '') ? c.color : '#4b9cff', collapsed: Boolean(c.collapsed) })), tools: imported.tools.map(t => ({ id: String(t.id), categoryId: String(t.categoryId), name: String(t.name).slice(0, 70), description: String(t.description || '').slice(0, 240), url: (() => { try { return normalizedUrl(String(t.url || '')); } catch { return ''; } })(), rating: Math.max(1, Math.min(5, Number(t.rating) || 3)), pricing: PRICING.includes(t.pricing) ? t.pricing : 'Freemium', tags: Array.isArray(t.tags) ? t.tags.map(x => String(x).slice(0, 30)).slice(0, 8) : [], notes: String(t.notes || '').slice(0, 1000), favorite: Boolean(t.favorite), addedAt: Number(t.addedAt) || Date.now() })).filter(t => imported.categories.some(c => String(c.id) === t.categoryId)), notes: String(imported.notes || '').slice(0, 5000), favoritesOrder: Array.isArray(imported.favoritesOrder) ? imported.favoritesOrder.map(String) : [], preferences: { ...makeSeed().preferences, ...(imported.preferences || {}) } }; openConfirm({ title: 'Restore this backup?', text: `It contains ${normalized.tools.length} tools and ${normalized.categories.length} categories. Restoring will replace the current local library.`, confirmLabel: 'Restore backup', onConfirm: () => { state = normalized; query = ''; closeModal(); persist(); render(); showToast('Backup restored successfully.'); } }); } catch { showToast('That file is not a valid backup. Nothing changed.'); } }; reader.readAsText(file); });
+importInput.addEventListener('change', event => { const [file] = event.target.files; event.target.value = ''; if (!file) return; if (file.size > 5 * 1024 * 1024) { showToast('That backup is larger than 5 MB and was not imported.'); return; } const reader = new FileReader(); reader.onload = () => { try { const imported = JSON.parse(reader.result); if (!validData(imported)) throw new Error('This does not look like an AI Tools Overview backup.'); const normalized = { categories: imported.categories.map(c => ({ id: String(c.id), name: String(c.name).slice(0, 45), description: String(c.description || '').slice(0, 160), icon: String(c.icon || '✦').slice(0, 4), color: /^#[0-9a-f]{6}$/i.test(c.color || '') ? c.color : '#4b9cff', collapsed: Boolean(c.collapsed) })), tools: imported.tools.map(t => ({ id: String(t.id), categoryId: String(t.categoryId), name: String(t.name).slice(0, 70), description: String(t.description || '').slice(0, 240), url: (() => { try { return normalizedUrl(String(t.url || '')); } catch { return ''; } })(), favicon: String(t.favicon || ''), rating: Math.max(1, Math.min(5, Number(t.rating) || 3)), pricing: PRICING.includes(t.pricing) ? t.pricing : 'Freemium', tags: Array.isArray(t.tags) ? t.tags.map(x => String(x).slice(0, 30)).slice(0, 8) : [], notes: String(t.notes || '').slice(0, 1000), favorite: Boolean(t.favorite), addedAt: Number(t.addedAt) || Date.now(), quality: Number.isFinite(Number(t.quality)) ? Math.max(0, Math.min(100, Number(t.quality))) : null, costPerTask: Number.isFinite(Number(t.costPerTask)) ? Number(t.costPerTask) : null, poweredBy: t.poweredBy ? String(t.poweredBy).slice(0, 120) : null })).filter(t => imported.categories.some(c => String(c.id) === t.categoryId)), notes: String(imported.notes || '').slice(0, 5000), favoritesOrder: Array.isArray(imported.favoritesOrder) ? imported.favoritesOrder.map(String) : [], preferences: { ...makeSeed().preferences, ...(imported.preferences || {}) } }; openConfirm({ title: 'Restore this backup?', text: `It contains ${normalized.tools.length} tools and ${normalized.categories.length} categories. Restoring will replace the current local library.`, confirmLabel: 'Restore backup', onConfirm: () => { state = normalized; query = ''; closeModal(); persist(); render(); showToast('Backup restored successfully.'); } }); } catch { showToast('That file is not a valid backup. Nothing changed.'); } }; reader.readAsText(file); });
 
 document.addEventListener('keydown', event => { if (event.key === '/' && !activeModal && !['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)) { event.preventDefault(); document.querySelector('#global-search')?.focus(); } if (event.key === 'Escape' && activeModal) closeModal(); });
 document.addEventListener('click', event => { if (openMenuId && !event.target.closest('.category-menu-wrap')) { openMenuId = null; render(); } });
