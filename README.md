@@ -37,11 +37,20 @@ The included GitHub Actions workflow deploys this static application to GitHub P
 Type a name that matches something in the built-in tool library (all 81 seed
 tools, by name) and the rest of the form — category, description, website,
 pricing, rating, tags — fills in automatically; you can still edit anything
-it suggests. A handful of chat assistants (ChatGPT, Claude, Gemini, Grok,
-Microsoft Copilot) also get a **quality** score and **cost per task**,
-sourced from the [Artificial Analysis](https://artificialanalysis.ai) LLM
-leaderboard, mapped to the flagship reasoning tier of the model that powers
-each product. Pasting a website URL still works as a lighter-weight fallback
+it suggests. Pasting a website URL still works as a lighter-weight fallback
 for domains outside the library. A name with no match in the library (i.e.
 any genuinely new tool) needs its details filled in by hand — this is a
 local-first app with no backend, so it can't look anything up live.
+
+A few tools also carry a **quality** score and **cost per task**, sourced
+from [Artificial Analysis](https://artificialanalysis.ai):
+
+- ChatGPT, Claude, Gemini, Grok, and Microsoft Copilot are scored on the
+  general **Intelligence Index**, mapped to the flagship reasoning tier of
+  the model powering each product.
+- Cursor is scored on the separate **Coding Agent Index** (it's benchmarked
+  directly as a coding agent, not approximated via an underlying model) —
+  shown with its own label since the two indexes aren't on the same scale.
+- GitHub Copilot isn't benchmarked as an agent there, so its number is an
+  approximation via its default underlying chat model, same as Microsoft
+  Copilot; the detail view says so explicitly.
