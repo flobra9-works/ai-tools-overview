@@ -28,8 +28,13 @@ The included GitHub Actions workflow deploys this static application to GitHub P
 - Drag categories by their header to reorder the board, or use **Move earlier / Move later**
   in the category menu (this also works on touch, where HTML5 drag-and-drop does not)
 - Create, edit, collapse, and safely delete categories from the top bar or the board
+- Categories show their first 5 tools with a **Show N more** button (remembered per category);
+  searching always shows every match
 - Instant search, pricing/category filters, sorting (including by quality), and compact-list view
-- Persistent personal notes and preferences
+- Everything you change — tool and category order, favorites, collapsed/expanded state, filters,
+  sort, view mode, notes — is saved to the browser's local storage as you go and restored on the
+  next visit. Storage is per browser and per site address, so a different browser, device, or
+  private window starts fresh; use Export/Import to carry a library across.
 - JSON export and validated, confirmation-protected import
 
 ## Adding a tool

@@ -1,5 +1,7 @@
 const STORAGE_KEY = 'ai-tools-overview-v2';
 
+const PREVIEW_LIMIT = 5; // tools shown per category before "Show more"
+
 const PRICING = ['Free', 'Freemium', 'Paid', 'Open Source', 'Free / Open Source'];
 const FILTERS = ['All', 'Favorites', 'Free', 'Freemium', 'Paid', 'Open Source'];
 const KNOWN_WEBSITES = {
@@ -354,13 +356,17 @@ function renderCategories(visible) {
 function renderCategory(category, tools, total) {
   const index = state.categories.findIndex(c => c.id === category.id);
   const menu = openMenuId === category.id ? `<div class="category-menu" role="menu"><button data-category-action="edit" data-category-id="${category.id}">Edit category</button><button data-category-action="collapse" data-category-id="${category.id}">${category.collapsed ? 'Expand category' : 'Collapse category'}</button><button data-category-action="move-earlier" data-category-id="${category.id}" ${index <= 0 ? 'disabled' : ''}>Move earlier</button><button data-category-action="move-later" data-category-id="${category.id}" ${index === state.categories.length - 1 ? 'disabled' : ''}>Move later</button><button data-category-action="delete" data-category-id="${category.id}" class="danger-text">Delete category</button></div>` : '';
-  const list = state.preferences.view === 'list' ? tools.map(tool => renderTool(tool, true)).join('') : tools.map(tool => renderTool(tool)).join('');
+  const showAll = category.expanded || Boolean(query.trim()) || tools.length <= PREVIEW_LIMIT;
+  const shown = showAll ? tools : tools.slice(0, PREVIEW_LIMIT);
+  const hidden = tools.length - shown.length;
+  const list = shown.map(tool => renderTool(tool, state.preferences.view === 'list')).join('');
+  const more = tools.length > PREVIEW_LIMIT && !query.trim() ? `<button class="show-more" data-toggle-more="${category.id}" aria-expanded="${category.expanded ? 'true' : 'false'}">${category.expanded ? '▴ Show less' : `▾ Show ${hidden} more`}</button>` : '';
   return `<article class="category-card ${category.collapsed ? 'collapsed' : ''}" style="--accent:${esc(category.color)}" data-category-drop="${category.id}" data-category-id="${category.id}" draggable="true">
     <header class="category-header">
       <span class="category-grip" aria-hidden="true" title="Drag to reorder categories">⠿</span><span class="category-icon" aria-hidden="true">${esc(category.icon)}</span><div class="category-heading"><div class="category-title-row"><span class="category-title">${esc(category.name)}</span><span class="tool-count">${total}</span></div><p class="category-description">${esc(category.description)}</p></div>
       <div class="category-menu-wrap"><button class="menu-trigger" aria-label="Manage ${esc(category.name)}" aria-expanded="${openMenuId === category.id}" data-menu-id="${category.id}">•••</button>${menu}</div>
     </header>
-    ${category.collapsed ? '' : `<div class="tools-list">${list || `<p class="category-description" style="padding:7px 4px">No matching tools here yet.</p>`}<button class="add-tool" data-add-tool-category="${category.id}">＋ Add tool</button></div>`}
+    ${category.collapsed ? '' : `<div class="tools-list">${list || `<p class="category-description" style="padding:7px 4px">No matching tools here yet.</p>`}<div class="tools-footer">${more}<button class="add-tool" data-add-tool-category="${category.id}">＋ Add tool</button></div></div>`}
   </article>`;
 }
 
@@ -401,6 +407,7 @@ function bindAppEvents() {
   document.querySelector('#import-btn')?.addEventListener('click', () => importInput.click());
   document.querySelectorAll('[data-menu-id]').forEach(button => button.addEventListener('click', event => { event.stopPropagation(); openMenuId = openMenuId === button.dataset.menuId ? null : button.dataset.menuId; render(); }));
   document.querySelectorAll('[data-category-action]').forEach(button => button.addEventListener('click', () => handleCategoryAction(button.dataset.categoryAction, button.dataset.categoryId)));
+  document.querySelectorAll('[data-toggle-more]').forEach(button => button.addEventListener('click', event => { event.stopPropagation(); const category = categoryById(button.dataset.toggleMore); if (!category) return; category.expanded = !category.expanded; persist(); render(); }));
   document.querySelectorAll('[data-favorite-id]').forEach(button => button.addEventListener('click', event => { event.stopPropagation(); toggleFavorite(button.dataset.favoriteId); }));
   document.querySelectorAll('.tool-card').forEach(card => {
     card.addEventListener('click', event => { if (!event.target.closest('.favorite-toggle')) openToolDetail(card.dataset.toolId); });
@@ -454,7 +461,18 @@ function moveTool(toolId, categoryId, beforeId = null) {
   let insertAt;
   if (beforeId) insertAt = without.findIndex(t => t.id === beforeId);
   else { const matching = without.map((t, index) => [t, index]).filter(([t]) => t.categoryId === categoryId); insertAt = matching.length ? matching.at(-1)[1] + 1 : without.length; }
-  without.splice(insertAt < 0 ? without.length : insertAt, 0, tool); state.tools = without; dragToolId = null; clearDropHints(); persist(); render(); showToast('Tool placement saved.');
+  without.splice(insertAt < 0 ? without.length : insertAt, 0, tool); state.tools = without; dragToolId = null; clearDropHints();
+  revealTool(tool);
+  const resorted = state.preferences.sort !== 'manual';
+  if (resorted) state.preferences.sort = 'manual';
+  persist(); render(); showToast(resorted ? 'Switched to custom order so your arrangement stays visible.' : 'Tool placement saved.');
+}
+
+// Expand a category's "Show more" if the tool would otherwise sit in the hidden tail.
+function revealTool(tool) {
+  const category = categoryById(tool.categoryId); if (!category || category.expanded) return;
+  const siblings = state.tools.filter(t => t.categoryId === tool.categoryId);
+  if (siblings.length > PREVIEW_LIMIT && siblings.indexOf(tool) >= PREVIEW_LIMIT) category.expanded = true;
 }
 
 function clearDropHints() { document.querySelectorAll('.dragging-category,.drop-before,.drop-after,.drag-over').forEach(el => el.classList.remove('dragging-category', 'drop-before', 'drop-after', 'drag-over')); }
@@ -522,6 +540,7 @@ function openToolForm(tool = null, preselectedCategory = null) {
     const quality = form.get('quality') ? Number(form.get('quality')) : null; const costPerTask = form.get('costPerTask') ? Number(form.get('costPerTask')) : null; const poweredBy = String(form.get('poweredBy') || '').trim() || null; const qualityLabel = String(form.get('qualityLabel') || '').trim() || null;
     const data = { name, categoryId, description, url, favicon: String(form.get('favicon') || (url ? `${new URL(url).origin}/favicon.ico` : '')), rating: Number(form.get('rating')), pricing: form.get('pricing'), tags: String(form.get('tags')).split(',').map(t => t.trim()).filter(Boolean).slice(0, 8), notes: String(form.get('notes')).trim(), favorite: form.get('favorite') === 'on', quality, costPerTask, poweredBy, qualityLabel };
     if (tool) { Object.assign(tool, data); } else { const entry = { id: uid('tool'), ...data, addedAt: Date.now() }; state.tools.push(entry); tool = entry; }
+    revealTool(tool);
     state.favoritesOrder = favoriteOrder().filter(id => id !== tool.id); if (tool.favorite) state.favoritesOrder.unshift(tool.id); persist(); closeModal(); render(); showToast(isEdit ? 'Tool updated.' : 'Tool added to your library.');
   });
   setTimeout(() => document.querySelector('#tool-name')?.focus(), 0);
@@ -551,8 +570,9 @@ function closeModal() { activeModal = null; modalRoot.innerHTML = ''; }
 
 function exportData() { const payload = { version: 1, exportedAt: new Date().toISOString(), ...state }; const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' }); const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = `ai-tools-overview-backup-${new Date().toISOString().slice(0, 10)}.json`; document.body.append(link); link.click(); link.remove(); URL.revokeObjectURL(link.href); showToast('Backup downloaded.'); }
 
-importInput.addEventListener('change', event => { const [file] = event.target.files; event.target.value = ''; if (!file) return; if (file.size > 5 * 1024 * 1024) { showToast('That backup is larger than 5 MB and was not imported.'); return; } const reader = new FileReader(); reader.onload = () => { try { const imported = JSON.parse(reader.result); if (!validData(imported)) throw new Error('This does not look like an AI Tools Overview backup.'); const normalized = { categories: imported.categories.map(c => ({ id: String(c.id), name: String(c.name).slice(0, 45), description: String(c.description || '').slice(0, 160), icon: String(c.icon || '✦').slice(0, 4), color: /^#[0-9a-f]{6}$/i.test(c.color || '') ? c.color : '#4b9cff', collapsed: Boolean(c.collapsed) })), tools: imported.tools.map(t => ({ id: String(t.id), categoryId: String(t.categoryId), name: String(t.name).slice(0, 70), description: String(t.description || '').slice(0, 240), url: (() => { try { return normalizedUrl(String(t.url || '')); } catch { return ''; } })(), favicon: String(t.favicon || ''), rating: Math.max(1, Math.min(5, Number(t.rating) || 3)), pricing: PRICING.includes(t.pricing) ? t.pricing : 'Freemium', tags: Array.isArray(t.tags) ? t.tags.map(x => String(x).slice(0, 30)).slice(0, 8) : [], notes: String(t.notes || '').slice(0, 1000), favorite: Boolean(t.favorite), addedAt: Number(t.addedAt) || Date.now(), quality: Number.isFinite(Number(t.quality)) ? Math.max(0, Math.min(100, Number(t.quality))) : null, costPerTask: Number.isFinite(Number(t.costPerTask)) ? Number(t.costPerTask) : null, poweredBy: t.poweredBy ? String(t.poweredBy).slice(0, 120) : null, qualityLabel: t.qualityLabel ? String(t.qualityLabel).slice(0, 60) : null })).filter(t => imported.categories.some(c => String(c.id) === t.categoryId)), notes: String(imported.notes || '').slice(0, 5000), favoritesOrder: Array.isArray(imported.favoritesOrder) ? imported.favoritesOrder.map(String) : [], preferences: { ...makeSeed().preferences, ...(imported.preferences || {}) } }; openConfirm({ title: 'Restore this backup?', text: `It contains ${normalized.tools.length} tools and ${normalized.categories.length} categories. Restoring will replace the current local library.`, confirmLabel: 'Restore backup', onConfirm: () => { state = normalized; query = ''; closeModal(); persist(); render(); showToast('Backup restored successfully.'); } }); } catch { showToast('That file is not a valid backup. Nothing changed.'); } }; reader.readAsText(file); });
+importInput.addEventListener('change', event => { const [file] = event.target.files; event.target.value = ''; if (!file) return; if (file.size > 5 * 1024 * 1024) { showToast('That backup is larger than 5 MB and was not imported.'); return; } const reader = new FileReader(); reader.onload = () => { try { const imported = JSON.parse(reader.result); if (!validData(imported)) throw new Error('This does not look like an AI Tools Overview backup.'); const normalized = { categories: imported.categories.map(c => ({ id: String(c.id), name: String(c.name).slice(0, 45), description: String(c.description || '').slice(0, 160), icon: String(c.icon || '✦').slice(0, 4), color: /^#[0-9a-f]{6}$/i.test(c.color || '') ? c.color : '#4b9cff', collapsed: Boolean(c.collapsed), expanded: Boolean(c.expanded) })), tools: imported.tools.map(t => ({ id: String(t.id), categoryId: String(t.categoryId), name: String(t.name).slice(0, 70), description: String(t.description || '').slice(0, 240), url: (() => { try { return normalizedUrl(String(t.url || '')); } catch { return ''; } })(), favicon: String(t.favicon || ''), rating: Math.max(1, Math.min(5, Number(t.rating) || 3)), pricing: PRICING.includes(t.pricing) ? t.pricing : 'Freemium', tags: Array.isArray(t.tags) ? t.tags.map(x => String(x).slice(0, 30)).slice(0, 8) : [], notes: String(t.notes || '').slice(0, 1000), favorite: Boolean(t.favorite), addedAt: Number(t.addedAt) || Date.now(), quality: Number.isFinite(Number(t.quality)) ? Math.max(0, Math.min(100, Number(t.quality))) : null, costPerTask: Number.isFinite(Number(t.costPerTask)) ? Number(t.costPerTask) : null, poweredBy: t.poweredBy ? String(t.poweredBy).slice(0, 120) : null, qualityLabel: t.qualityLabel ? String(t.qualityLabel).slice(0, 60) : null })).filter(t => imported.categories.some(c => String(c.id) === t.categoryId)), notes: String(imported.notes || '').slice(0, 5000), favoritesOrder: Array.isArray(imported.favoritesOrder) ? imported.favoritesOrder.map(String) : [], preferences: { ...makeSeed().preferences, ...(imported.preferences || {}) } }; openConfirm({ title: 'Restore this backup?', text: `It contains ${normalized.tools.length} tools and ${normalized.categories.length} categories. Restoring will replace the current local library.`, confirmLabel: 'Restore backup', onConfirm: () => { state = normalized; query = ''; closeModal(); persist(); render(); showToast('Backup restored successfully.'); } }); } catch { showToast('That file is not a valid backup. Nothing changed.'); } }; reader.readAsText(file); });
 
+window.addEventListener('pagehide', persist);
 document.addEventListener('keydown', event => { if (event.key === '/' && !activeModal && !['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)) { event.preventDefault(); document.querySelector('#global-search')?.focus(); } if (event.key === 'Escape' && activeModal) closeModal(); });
 document.addEventListener('click', event => { if (openMenuId && !event.target.closest('.category-menu-wrap')) { openMenuId = null; render(); } });
 
