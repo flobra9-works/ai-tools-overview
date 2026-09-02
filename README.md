@@ -26,8 +26,8 @@ The included GitHub Actions workflow deploys this static application to GitHub P
 
 ## Included
 
-- 81 seed tools across 18 colorful categories; 58 of them carry the description from their own
-  homepage (og/meta description, fetched 2 Sep 2026), the rest a short curated line
+- 93 seed tools across 17 categories (the board as curated on 2 Sep 2026); most carry the
+  description from their own homepage (og/meta description), the rest a short curated line
 - Add, edit, inspect, favorite, and safely delete tools
 - Drag tools between categories or reorder favorites
 - Drag categories by their header to reorder the board, or use **Move earlier / Move later**
@@ -41,10 +41,14 @@ The included GitHub Actions workflow deploys this static application to GitHub P
   next visit. Storage is per browser and per site address, so a different browser, device, or
   private window starts fresh; use Export/Import to carry a library across.
 - JSON export and validated, confirmation-protected import
+- Automatic local backups: the last four full copies are kept in the browser (one daily, one before
+  any import or restore, one whenever a save would halve the library). If the main storage key is
+  ever empty, the newest backup is restored on load. **Backups** in the top bar lists and restores
+  them; they live in the same browser, so Export is still the way to keep a copy elsewhere.
 
 ## Adding a tool
 
-Type a name that matches something in the built-in tool library (all 81 seed
+Type a name that matches something in the built-in tool library (all 93 seed
 tools, by name) and the rest of the form — category, description, website,
 pricing, rating, tags — fills in automatically; you can still edit anything
 it suggests. For a tool that isn't in the library, the form goes online:

@@ -1,4 +1,6 @@
 const STORAGE_KEY = 'ai-tools-overview-v2';
+const BACKUP_PREFIX = `${STORAGE_KEY}-backup-`; // automatic local backups live under this prefix (see listBackups)
+const MAX_BACKUPS = 4;
 
 const PREVIEW_LIMIT = 5; // tools shown per category before "Show more"
 
@@ -52,44 +54,69 @@ function syncRating(tool) { const derived = starsFromQuality(tool.quality, tool.
 function ratingIsDerived(tool) { return starsFromQuality(tool.quality, tool.qualityLabel) != null; }
 
 const seedCategories = [
-  ['chat', 'AI Chat / Assistants', 'Everyday reasoning, conversations, and multimodal help.', '✦', '#ad67ff'],
-  ['research', 'Search / Research', 'Evidence, citations, papers, and deeper discovery.', '⌕', '#4c9dff'],
-  ['writing', 'Writing / Content', 'Drafting, editing, and content systems.', '✎', '#21c9cf'],
-  ['image', 'Image Generation', 'Visual concepts, images, and creative workflows.', '▧', '#73de37'],
-  ['video', 'Video Generation', 'Video creation, editing, and motion.', '▷', '#f0c51c'],
+  ['chat', 'AI Chat / Assistants', 'Everyday reasoning, conversations, and multimodal help.', '✦', '#ad67ff', true],
+  ['code', 'Code / Development', 'AI-native builders and development companions.', '⌘', '#b16aff', true],
+  ['automation', 'Agent Management / Automation / Agents', 'Workflows, orchestration, and autonomous work.', '⚙', '#ff7a45', true],
+  ['courses', 'AI Learning Courses', 'AI and IT Learning Ressources', '🎓', '#4fd36b'],
+  ['uiux', 'UI/UX Design Inspiration', 'Where should your Agent get inspiration?', '✦', '#e16cff', true],
+  ['research', 'Deep Research and Learning-Material', 'Evidence, citations, papers, and deeper discovery.', '⌕', '#4c9dff'],
+  ['image', 'Image Generation', 'Visual concepts, images, and creative workflows.', '▧', '#73de37', true],
+  ['video', 'Video Generation', 'Video creation, editing, and motion.', '▷', '#f0c51c', true],
+  ['creative3d', '3D / Creative', '3D assets, spatial design, and creative experiments.', '◈', '#e16cff'],
   ['audio', 'Audio / Voice', 'Speech, sound, music, and voice synthesis.', '♬', '#f2994a'],
-  ['code', 'Code / Development', 'AI-native builders and development companions.', '⌘', '#b16aff'],
-  ['automation', 'Automation / Agents', 'Workflows, orchestration, and autonomous work.', '⚙', '#4a9eff'],
-  ['data', 'Data / Analytics', 'Analysis, dashboards, and business intelligence.', '▥', '#27c7c6'],
-  ['productivity', 'Productivity', 'Workspaces, focus, and knowledge management.', '✓', '#79df3f'],
-  ['design', 'Design / Presentations', 'Design tools, decks, and visual communication.', '◇', '#f3cb27'],
-  ['transcription', 'Voice / Transcription', 'Meetings, transcription, and call intelligence.', '◉', '#f4a05b'],
-  ['learning', 'Education / Learning', 'Study aids, tutoring, and skill-building.', '▰', '#9c70fb'],
-  ['legal', 'Legal / Documents', 'Contracts, document review, and legal research.', '▱', '#59acff'],
-  ['health', 'Health / Wellness', 'Health education and personal wellbeing tools.', '♡', '#31cfc8'],
-  ['finance', 'Finance', 'Finance research, models, and personal money.', '$', '#7bdf44'],
   ['marketing', 'Marketing / SEO', 'Growth, search visibility, and marketing systems.', '⚑', '#f2c827'],
-  ['creative3d', '3D / Creative', '3D assets, spatial design, and creative experiments.', '◈', '#e16cff']
-].map(([id, name, description, icon, color]) => ({ id, name, description, icon, color, collapsed: false }));
+  ['design', 'Design / Presentations', 'Design tools, decks, and visual communication.', '◇', '#f3cb27'],
+  ['data', 'Data / Analytics', 'Analysis, dashboards, and business intelligence.', '▥', '#27c7c6'],
+  ['writing', 'Writing / Content', 'Drafting, editing, and content systems.', '✎', '#21c9cf'],
+  ['productivity', 'Productivity', 'Workspaces, focus, and knowledge management.', '✓', '#79df3f'],
+  ['transcription', 'Voice / Transcription', 'Meetings, transcription, and call intelligence.', '◉', '#f4a05b'],
+  ['legal', 'Legal / Documents', 'Contracts, document review, and legal research.', '▱', '#59acff']
+].map(([id, name, description, icon, color, expanded]) => ({ id, name, description, icon, color, collapsed: false, expanded: Boolean(expanded) }));
 
 const seedEntries = [
-  ['chat','ChatGPT','General-purpose assistant for writing, analysis, coding, and images.','https://chatgpt.com',5,'Freemium','general,vision'],
   ['chat','Claude','Thoughtful assistant for analysis, writing, and long documents.','https://claude.ai',5,'Freemium','reasoning,writing'],
+  ['chat','ChatGPT','General-purpose assistant for writing, analysis, coding, and images.','https://chatgpt.com',5,'Freemium','general,vision'],
   ['chat','Gemini','Google’s multimodal AI assistant and workspace companion.','https://gemini.google.com',5,'Freemium','google,multimodal'],
   ['chat','Grok','Grok is an AI assistant built by SpaceXAI. Chat, create images, write code, and get real-time answers from the web and X.','https://grok.com',4,'Freemium','realtime'],
-  ['chat','Microsoft Copilot','Microsoft Copilot is your companion to inform, entertain and inspire. Get advice, feedback and straightforward answers. Try Copilot now.','https://copilot.microsoft.com',4,'Freemium','microsoft,work'],
-  ['chat','Poe','Chat with the best AI, privately or in a group chat. Explore GPT-5.6-Sol, Claude-Opus-5, Claude-Fable-5, Grok-4.6, Kimi-K3, and thousands of others, all on Poe.','https://poe.com',4,'Freemium','models'],
+  ['chat','Kimi','Try Kimi K3 to build playable multiplayer and 3D games, create consulting grade slides, and run parallel tasks with Swarm and Goal to get more work done.','https://www.kimi.com',4,'Freemium','kimi'],
+  ['chat','DeepSeek','DeepSeek’s free chat assistant, running its openly released DeepSeek models.','https://chat.deepseek.com',4,'Freemium','chat,deepseek'],
+  ['chat','Mistral Vibe','Vibe (formerly Le Chat) is your AI agent for work and code.','https://chat.mistral.ai',4,'Freemium','chat,mistral'],
+  ['chat','Qwen','Qwen Studio offers comprehensive functionality spanning chatbot, image and video understanding, image generation, document processing, web search integration, tool utilization, and artifacts.','https://qwen.ai',4,'Freemium','qwen'],
+  ['code','Claude Code','Anthropic\'s agentic coding tool for developers. Claude Code understands your codebase, edits files, runs commands, and helps you ship faster.','https://www.anthropic.com/claude-code',5,'Paid','agent,terminal'],
+  ['code','Codex','OpenAI’s coding agent for software tasks.','https://openai.com/codex/',5,'Paid','agent,terminal'],
+  ['code','Grok build','Grok is an AI assistant built by SpaceXAI. Chat, create images, write code, and get real-time answers from the web and X.','https://grok.com/build',4,'Freemium','grok'],
+  ['code','Kimi Code','K3 is now live! Supports up to 1M context tokens. Optimized for coding, 3D gaming, and complex knowledge tasks. Try Kimi K3 in Kimi Code (KFC), the ultimate AI toolkit for developers.','https://www.kimi.com/code',4,'Freemium','kimi'],
+  ['code','Cursor','Built to make you extraordinarily productive, agents turn ideas into code. Accelerate development by handing off tasks to Cursor.','https://www.cursor.com',5,'Freemium','editor,agent'],
+  ['code','GitHub Copilot','GitHub Copilot works alongside you directly in your editor, suggesting whole lines or entire functions for you.','https://github.com/features/copilot',5,'Paid','github,editor'],
+  ['code','Opencode','OpenCode - The open source coding agent.','https://opencode.ai',4,'Freemium','opencode'],
+  ['automation','n8n','n8n is a workflow automation platform that uniquely combines AI capabilities with business process automation, giving technical teams the flexibility of code with the speed of no-code.','https://n8n.io',5,'Free / Open Source','workflows,self-hosted'],
+  ['automation','Make','Visual automation scenarios across services.','https://www.make.com',4,'Freemium','workflows,visual'],
+  ['automation','Zapier','Build and scale AI workflows and agents across 9,000+ apps with Zapier—the most connected AI orchestration platform. Trusted by 3 million+ businesses.','https://zapier.com',4,'Freemium','workflows,apps'],
+  ['automation','OpenAI Agents SDK','Framework for building tool-using AI agents.','https://openai.github.io/openai-agents-python/',4,'Open Source','agents,python'],
+  ['automation','LangGraph','Framework for controllable, stateful agent workflows.','https://langchain-ai.github.io/langgraph/',4,'Open Source','agents,framework'],
+  ['automation','Paperclip','Manage a team of AI agents to run your business. Org charts, budgets, governance, and goals — all in one deployment.','https://paperclip.ing',4,'Freemium','paperclip,ing'],
+  ['automation','Hivementality','Build teams of AI agents that collaborate, delegate, and get real work done. 70+ tools, 150+ templates, 13 messaging channels. MCP support, Live Canvas, voice, agent self-evolution. Self-hosted, fully sandboxed, open source.','https://hivementality.ai',4,'Freemium','hivementality'],
+  ['courses','Huggingface','We’re on a journey to advance and democratize artificial intelligence through open source and open science.','https://huggingface.co',4,'Freemium','huggingface'],
+  ['courses','Google Cloud AI and Machine Learning','Take machine learning & AI classes with Google experts. Grow your ML skills with interactive labs. Deploy the latest AI technology. Start learning!','https://cloud.google.com/learn/training/machinelearning-ai',4,'Freemium','cloud,google'],
+  ['courses','Coursera','Learn job-ready skills with online courses, Professional Certificates, Specializations, and degrees from Google, Meta, Anthropic, DeepLearning.AI, Stanford, and more. Start learning today.','https://www.coursera.org',4,'Freemium','coursera'],
+  ['courses','Claude Academy','Free AI education from Anthropic. Learn how AI works, how to use it with intention, and how to get more from Claude, organized around the problems you actually face.','https://academy.claude.com',4,'Freemium','academy,claude'],
+  ['uiux','Awwwards','Awwwards are the Website Awards that recognize and promote the talent and effort of the best developers, designers and web agencies in the world.','https://www.awwwards.com',4,'Freemium','awwwards'],
+  ['uiux','Dribbble','Design Tool','https://dribbble.com',4,'Freemium','dribbble'],
+  ['uiux','Magicui','Beautiful UI components and templates to make your landing page look stunning.','https://magicui.design',4,'Freemium','magicui,design'],
+  ['uiux','Reactbits','An open source collection of high quality, animated, interactive & fully customizable React components for building stunning, memorable user interfaces.','https://reactbits.dev',4,'Freemium','reactbits'],
+  ['uiux','Daisyui','Tailwind CSS component library by daisyUI. Build faster with semantic components, built-in themes, and reusable UI blocks.','https://daisyui.com',4,'Freemium','daisyui'],
+  ['uiux','Heroui','Beautiful, accessible React UI components built on React Aria and Tailwind CSS v4. The modern alternative to MUI, Chakra UI, and shadcn/ui for building production-ready applications.','https://www.heroui.com',4,'Freemium','heroui'],
+  ['uiux','Motion Primitives','Ready-to-use animated React components built on Motion, for landing pages and product UI.','https://motion-primitives.com',4,'Freemium','motion,primitives'],
+  ['uiux','Animate Ui','Fully animated, open-source component distribution built with React, TypeScript, Tailwind CSS, Motion and Shadcn CLI. Browse a list of components you can install, modify, and use in your projects.','https://animate-ui.com',4,'Freemium','animate'],
+  ['uiux','Cult Ui','Copy-paste React and Tailwind components and blocks in the shadcn/ui style.','https://cult-ui.com',4,'Freemium','cult'],
+  ['uiux','Preline','Build faster with Preline UI, a free and open-source Tailwind CSS UI component library with Pro blocks, templates, plugins, framework guides, and Figma.','https://preline.co',4,'Freemium','preline'],
+  ['uiux','Headlessui','Completely unstyled, fully accessible UI components, designed to integrate beautifully with Tailwind CSS.','https://headlessui.com',4,'Freemium','headlessui'],
+  ['uiux','Watermelon UI','A collection of high-quality React components, dashboards, and UI blocks. Copy and paste production-ready UI with ease.','https://ui.watermelon.sh',4,'Freemium','watermelon'],
+  ['uiux','Styles Refero','Browse a curated DESIGN.md library for AI agents: colors, typography, spacing, components, and design rules from leading product websites.','https://styles.refero.design',4,'Freemium','styles,refero'],
+  ['uiux','Motionsites','即复即用的提示词，用 AI 构建惊艳的网站','https://motionsites.dev',4,'Freemium','motionsites'],
+  ['uiux','Pinterest','Discover recipes, home ideas, style inspiration and other ideas to try.','https://at.pinterest.com',4,'Freemium','pinterest'],
   ['research','Perplexity','Answer engine that searches the web and cites sources.','https://www.perplexity.ai',5,'Freemium','search,citations'],
-  ['research','Consensus','Consensus is an AI academic search engine for peer-reviewed literature—your research OS for finding, organizing, and analyzing science 10x faster.','https://consensus.app',4,'Freemium','science,papers'],
-  ['research','Elicit','Use AI to search, summarize, extract data from, and chat with over 125 million papers. Used by over 2 million researchers in academia and industry.','https://elicit.com',4,'Freemium','papers,evidence'],
   ['research','NotebookLM','Source-grounded research notebooks with audio overviews.','https://notebooklm.google.com',5,'Free','notes,google'],
-  ['research','Semantic Scholar','Semantic Scholar uses groundbreaking AI and engineering to understand the semantics of scientific literature to help Scholars discover relevant research.','https://www.semanticscholar.org',4,'Free','papers,academic'],
-  ['research','ResearchRabbit','Save hours on your literature review. Use ResearchRabbit to find related papers, build citation maps, and track research trends — powered by AI.','https://www.researchrabbit.ai',4,'Freemium','papers,discovery'],
-  ['writing','Jasper','Orchestrate intelligent agents to run end-to-end marketing workflows delivering speed, control, and measurable impact.','https://www.jasper.ai',4,'Paid','marketing,brand'],
-  ['writing','Grammarly','Grammarly makes AI writing convenient. Work smarter with personalized AI guidance and text generation on any app or website.','https://www.grammarly.com',4,'Freemium','editing'],
-  ['writing','Writer','WRITER is the enterprise AI agent platform trusted by Fortune 500 companies, built to help teams execute and scale on-brand, compliant work.','https://writer.com',4,'Paid','enterprise,brand'],
-  ['writing','Sudowrite','Write your novel faster with the best AI tool for fiction. Start for free today and see why The New Yorker calls it "a salvation" for writers and why The New York Times, The Verge, and many more love Sudowrite.','https://www.sudowrite.com',4,'Paid','creative,fiction'],
-  ['writing','Copy.ai','Introducing the first-ever GTM AI platform. Automate hundreds of tedious, repetitive tasks and empower your team to scale success like never before.','https://www.copy.ai',4,'Freemium','copy,sales'],
   ['image','Midjourney','High-quality image generation in a distinctive visual style.','https://www.midjourney.com',5,'Paid','art,images'],
   ['image','FLUX','Black Forest Labs is building visual intelligence: models that understand, reason, and act in the world. Use FLUX models via our API.','https://blackforestlabs.ai',5,'Open Source','models,local'],
   ['image','Ideogram','Image creation with especially strong typography.','https://ideogram.ai',4,'Freemium','text,design'],
@@ -103,126 +130,49 @@ const seedEntries = [
   ['video','Kling','Create high-quality AI videos and images with Kling AI. Turn text, images, and references into multimodal creative content in one studio.','https://klingai.com',4,'Freemium','video,animation'],
   ['video','Pika','The idea-to-video platform that sets your creativity in motion.','https://pika.art',4,'Freemium','video,effects'],
   ['video','Luma Dream Machine','Plan, generate, iterate, and refine, keeping full context across every stage of creative work.','https://lumalabs.ai/dream-machine',4,'Freemium','video,motion'],
+  ['creative3d','Meshy','Meshy\'s AI 3D model generator turns text and images into production-ready 3D models in 20-30 seconds. Export to FBX, OBJ, GLB, and STL formats. Try Meshy free.','https://www.meshy.ai',4,'Freemium','3d,assets'],
+  ['creative3d','Tripo','Create production-ready 3D models with AI.','https://www.tripo3d.ai',4,'Freemium','3d,models'],
+  ['creative3d','Spline AI','Generate 3D models from a text prompt or an image. Pick from four looks, choose the engine, and open the textured result straight in Spline.','https://spline.design/ai',4,'Freemium','3d,interactive'],
+  ['creative3d','Bookofshapes','A curated gallery of generative patterns. Discover, customize, and download unique algorithmic art.','https://www.bookofshapes.com',4,'Freemium','bookofshapes'],
+  ['creative3d','Contentcore','Create content in one place. Incredibly fast. Save as images or videos.','https://contentcore.xyz',4,'Freemium','contentcore,xyz'],
   ['audio','ElevenLabs','Create lifelike speech with our AI voice generator and voice agents platform. Access 5,000+ voices in 70+ languages with secure APIs and SDKs.','https://elevenlabs.io',5,'Freemium','voice,speech'],
   ['audio','Suno','Create stunning original music for free in seconds using our AI generator. Make your own masterpieces, share with friends, and discover music from artists worldwide.','https://suno.com',4,'Freemium','music,generation'],
   ['audio','Udio','Discover, create, and share music with the world. Use the latest technology to create AI music in seconds.','https://www.udio.com',4,'Freemium','music'],
   ['audio','Whisper','Open-source speech recognition from OpenAI.','https://openai.com/index/whisper/',5,'Open Source','speech,transcription'],
   ['audio','Descript','Descript is the AI video and audio editor that makes editing as easy as editing text. Record, transcribe, edit, and publish in one tool. Try it free.','https://www.descript.com',4,'Freemium','podcast,editing'],
-  ['code','Claude Code','Anthropic&#x27;s agentic coding tool for developers. Claude Code understands your codebase, edits files, runs commands, and helps you ship faster.','https://www.anthropic.com/claude-code',5,'Paid','agent,terminal'],
-  ['code','Codex','OpenAI’s coding agent for software tasks.','https://openai.com/codex/',5,'Paid','agent,terminal'],
-  ['code','Cursor','Built to make you extraordinarily productive, agents turn ideas into code. Accelerate development by handing off tasks to Cursor.','https://www.cursor.com',5,'Freemium','editor,agent'],
-  ['code','GitHub Copilot','GitHub Copilot works alongside you directly in your editor, suggesting whole lines or entire functions for you.','https://github.com/features/copilot',5,'Paid','github,editor'],
-  ['code','Windsurf','Agentic IDE from Codeium.','https://windsurf.com',4,'Freemium','editor,agent'],
-  ['code','Replit','Describe what you want. Replit builds it. Get a working app or website in minutes. No coding required.','https://replit.com',4,'Freemium','apps,cloud'],
-  ['code','Cline','Open-source AI coding agent with Plan/Act modes, MCP integration, and terminal-first workflows. Trusted by 8M+ developers worldwide.','https://cline.bot',4,'Open Source','vscode,agent'],
-  ['code','Aider','Terminal pair programming with LLMs.','https://aider.chat',4,'Open Source','terminal,git'],
-  ['automation','n8n','n8n is a workflow automation platform that uniquely combines AI capabilities with business process automation, giving technical teams the flexibility of code with the speed of no-code.','https://n8n.io',5,'Free / Open Source','workflows,self-hosted'],
-  ['automation','Zapier','Build and scale AI workflows and agents across 9,000+ apps with Zapier—the most connected AI orchestration platform. Trusted by 3 million+ businesses.','https://zapier.com',4,'Freemium','workflows,apps'],
-  ['automation','Make','Visual automation scenarios across services.','https://www.make.com',4,'Freemium','workflows,visual'],
-  ['automation','OpenAI Agents SDK','Framework for building tool-using AI agents.','https://openai.github.io/openai-agents-python/',4,'Open Source','agents,python'],
-  ['automation','LangGraph','Framework for controllable, stateful agent workflows.','https://langchain-ai.github.io/langgraph/',4,'Open Source','agents,framework'],
-  ['data','ChatGPT Advanced Data Analysis','Analyze spreadsheets, data files, and code in ChatGPT.','https://chatgpt.com',5,'Freemium','data,python'],
-  ['data','Tableau AI','Tableau AI brings the future into today’s decisions. Our approach to AI is driven by practical applications to help people and organizations answer pressing questions.','https://www.tableau.com/products/tableau-ai',4,'Paid','bi,enterprise'],
-  ['data','Power BI Copilot','Microsoft Power BI ist eine Business Intelligence-Plattform, mit der Sie Daten visualisieren und Erkenntnisse in Ihre vorhandenen Microsoft 365-Apps einbinden können. Kostenlos testen','https://www.microsoft.com/power-platform/products/power-bi',4,'Paid','bi,microsoft'],
-  ['data','Hex','Finally — anyone can get data insights grounded in the facts of their business. Hex has a flexible approach to context that earns trust without slowing you down.','https://hex.tech',4,'Freemium','notebooks,sql'],
-  ['productivity','Notion AI','One tool that does it all. Search, generate, analyze, and chat—right inside Notion.','https://www.notion.so/product/ai',5,'Freemium','workspace,notes'],
-  ['productivity','Microsoft 365 Copilot','Nutzen Sie den KI-Assistenten für Ihre Arbeit mit Microsoft 365 Copilot. Erfahren Sie, wie eine KI-Lösung für Unternehmen Ihr Geschäft unterstützen kann, und informieren Sie sich über die Copilot-Pläne und -Preise.','https://www.microsoft.com/microsoft-365/copilot',4,'Paid','microsoft,office'],
-  ['productivity','Mem','Let AI organize your team','https://mem.ai',4,'Paid','notes,knowledge'],
-  ['productivity','Motion','Motion is the #1 Rated Productivity Platform for the AI Era. AI Projects, AI Tasks, AI Calendar, AI Meetings, AI Docs, AI Notes, AI Reports, AI Workflows, and more.','https://www.usemotion.com',4,'Paid','planning,tasks'],
-  ['productivity','Reclaim','Reclaim is an AI-powered app that creates 40% more time for teams — auto-schedule tasks, habits, meeting & breaks – free on Google Calendar & Outlook Calendar.','https://reclaim.ai',4,'Freemium','calendar,focus'],
+  ['marketing','Surfer SEO','Track and improve your brand\'s visibility across Google and AI search engines like ChatGPT, Gemini, and Perplexity. Surfer is built for marketing & SEO teams ready for the AI era.','https://surferseo.com',4,'Paid','seo,content'],
+  ['marketing','HubSpot AI','HubSpot','https://www.hubspot.com/artificial-intelligence',4,'Freemium','crm,marketing'],
+  ['marketing','Ahrefs','We help marketers drive visibility across AI search, SEO, content, and social – with the largest AI and search databases online.','https://ahrefs.com',5,'Paid','seo,research'],
   ['design','Canva AI','AI-assisted graphics, documents, and presentations.','https://www.canva.com/ai-image-generator/',5,'Freemium','design,slides'],
   ['design','Figma AI','Get started faster, find what you’re looking for, and stay in the flow—with AI tools build for your workflows. Sign up for free today and harness the power of Figma AI.','https://www.figma.com/ai/',5,'Freemium','ui,product'],
   ['design','FigJam AI','A visual collaborative whiteboard where teams can diagram, brainstorm, and organize ideas together.','https://www.figma.com/figjam/',4,'Freemium','whiteboard,workshops'],
   ['design','Gamma','Gamma is your free-to-use AI design partner for creating effortless presentations, websites, and more. No coding or design skills required.','https://gamma.app',4,'Freemium','presentations,docs'],
   ['design','Framer AI','Framer is an AI website builder for designers and teams. Generate editable pages, refine every detail on canvas, and publish with CMS, hosting, SEO, and analytics.','https://www.framer.com/ai',4,'Freemium','web,design'],
+  ['data','ChatGPT Advanced Data Analysis','Analyze spreadsheets, data files, and code in ChatGPT.','https://chatgpt.com',5,'Freemium','data,python'],
+  ['data','Tableau AI','Tableau AI brings the future into today’s decisions. Our approach to AI is driven by practical applications to help people and organizations answer pressing questions.','https://www.tableau.com/products/tableau-ai',4,'Paid','bi,enterprise'],
+  ['data','Power BI Copilot','AI assistance for Microsoft business intelligence: ask questions of your data and draft reports in Power BI.','https://www.microsoft.com/power-platform/products/power-bi',4,'Paid','bi,microsoft'],
+  ['data','Hex','Finally — anyone can get data insights grounded in the facts of their business. Hex has a flexible approach to context that earns trust without slowing you down.','https://hex.tech',4,'Freemium','notebooks,sql'],
+  ['writing','Jasper','Orchestrate intelligent agents to run end-to-end marketing workflows delivering speed, control, and measurable impact.','https://www.jasper.ai',4,'Paid','marketing,brand'],
+  ['writing','Grammarly','Grammarly makes AI writing convenient. Work smarter with personalized AI guidance and text generation on any app or website.','https://www.grammarly.com',4,'Freemium','editing'],
+  ['writing','Writer','WRITER is the enterprise AI agent platform trusted by Fortune 500 companies, built to help teams execute and scale on-brand, compliant work.','https://writer.com',4,'Paid','enterprise,brand'],
+  ['writing','Sudowrite','Write your novel faster with the best AI tool for fiction. Start for free today and see why The New Yorker calls it "a salvation" for writers and why The New York Times, The Verge, and many more love Sudowrite.','https://www.sudowrite.com',4,'Paid','creative,fiction'],
+  ['writing','Copy.ai','Introducing the first-ever GTM AI platform. Automate hundreds of tedious, repetitive tasks and empower your team to scale success like never before.','https://www.copy.ai',4,'Freemium','copy,sales'],
+  ['productivity','Notion AI','One tool that does it all. Search, generate, analyze, and chat—right inside Notion.','https://www.notion.so/product/ai',5,'Freemium','workspace,notes'],
+  ['productivity','Microsoft 365 Copilot','AI in Word, Excel, PowerPoint, Outlook, and Teams, grounded in your organisation’s documents and mail.','https://www.microsoft.com/microsoft-365/copilot',4,'Paid','microsoft,office'],
+  ['productivity','Mem','Let AI organize your team','https://mem.ai',4,'Paid','notes,knowledge'],
+  ['productivity','Motion','Motion is the #1 Rated Productivity Platform for the AI Era. AI Projects, AI Tasks, AI Calendar, AI Meetings, AI Docs, AI Notes, AI Reports, AI Workflows, and more.','https://www.usemotion.com',4,'Paid','planning,tasks'],
+  ['productivity','Reclaim','Reclaim is an AI-powered app that creates 40% more time for teams — auto-schedule tasks, habits, meeting & breaks – free on Google Calendar & Outlook Calendar.','https://reclaim.ai',4,'Freemium','calendar,focus'],
   ['transcription','Otter.ai','Otter AI Meeting Agent supports real-time transcription, live chat, automated summaries, insights, and action items.','https://otter.ai',4,'Freemium','meetings,notes'],
   ['transcription','Fireflies.ai','Fireflies takes notes, manages tasks, and automates workflows across meetings, email, chat, CRM, and your apps. Build a searchable knowledge base of your team’s work in one place.','https://fireflies.ai',4,'Freemium','meetings,search'],
   ['transcription','Granola','The AI notepad for back-to-back meetings. Notes, actions and memory. Without a meeting bot.','https://www.granola.ai',4,'Freemium','meetings,notes'],
-  ['learning','Khanmigo','Khanmigo, built by nonprofit Khan Academy, is a top-rated AI for education. Save time on prep, tackle homework challenges, and get personalized tutoring.','https://www.khanmigo.ai',4,'Paid','education,tutor'],
-  ['learning','Quizlet Q-Chat','Conversational study support and practice.','https://quizlet.com/features/q-chat',4,'Freemium','study,quiz'],
-  ['learning','Duolingo Max','Learn languages by playing a game. It','https://www.duolingo.com',4,'Paid','language,tutor'],
   ['legal','Harvey','Harvey is the platform built to meet the standards of the world’s leading professional service firms.','https://www.harvey.ai',4,'Paid','legal,enterprise'],
-  ['legal','Spellbook','Spellbook is the #1 AI contract review platform for transactional lawyers. It uses GPT-5, Claude, and other LLMs to help legal teams draft and review contracts 10x faster, with greater precision—right in Microsoft Word','https://www.spellbook.legal',4,'Paid','contracts,word'],
-  ['health','Wysa','Conversational mental wellbeing support.','https://www.wysa.com',4,'Freemium','mental-health,wellness'],
-  ['health','Ada Health','Hi. We&#x27;re Ada. Our symptom assessment helps people manage their health, and our enterprise solutions help our partners improve health and care. See how we can help you too.','https://ada.com',4,'Freemium','health,symptoms'],
-  ['finance','Ramp Intelligence','AI automation for business spending.','https://ramp.com',4,'Paid','business,expenses'],
-  ['finance','Monarch Money','Manage your money with Monarch. Track accounts, build budgets, monitor investments, plan goals, and get a clearer view of your finances in one app.','https://www.monarchmoney.com',4,'Paid','personal-finance'],
-  ['finance','Wolfram','Creators of Wolfram Language, Wolfram|Alpha, Mathematica; delivering computational tools, innovations, consulting solutions to the world','https://www.wolfram.com',5,'Freemium','math,science'],
-  ['marketing','Surfer SEO','Track and improve your brand&#x27;s visibility across Google and AI search engines like ChatGPT, Gemini, and Perplexity. Surfer is built for marketing & SEO teams ready for the AI era.','https://surferseo.com',4,'Paid','seo,content'],
-  ['marketing','HubSpot AI','HubSpot','https://www.hubspot.com/artificial-intelligence',4,'Freemium','crm,marketing'],
-  ['marketing','Ahrefs','We help marketers drive visibility across AI search, SEO, content, and social – with the largest AI and search databases online.','https://ahrefs.com',5,'Paid','seo,research'],
-  ['creative3d','Meshy','Meshy&#x27;s AI 3D model generator turns text and images into production-ready 3D models in 20-30 seconds. Export to FBX, OBJ, GLB, and STL formats. Try Meshy free.','https://www.meshy.ai',4,'Freemium','3d,assets'],
-  ['creative3d','Tripo','Create production-ready 3D models with AI.','https://www.tripo3d.ai',4,'Freemium','3d,models'],
-  ['creative3d','Spline AI','Generate 3D models from a text prompt or an image. Pick from four looks, choose the engine, and open the textured result straight in Spline.','https://spline.design/ai',4,'Freemium','3d,interactive']
+  ['legal','Spellbook','Spellbook is the #1 AI contract review platform for transactional lawyers. It uses GPT-5, Claude, and other LLMs to help legal teams draft and review contracts 10x faster, with greater precision—right in Microsoft Word','https://www.spellbook.legal',4,'Paid','contracts,word']
 ];
 
 const NAME_LIBRARY = new Map(seedEntries.map(([categoryId, name, description, url, rating, pricing, tags]) => [
   name.toLowerCase(),
   syncRating({ name, categoryId, description, url, rating, pricing, tags: tags.split(',').filter(Boolean), ...(MODEL_QUALITY[name.toLowerCase()] || {}) })
 ]));
-
-// Seed descriptions were replaced by each tool's own homepage description on 2026-09-02. A saved library
-// still holding one of these older curated lines gets the new text on load; edited lines are left alone.
-const LEGACY_DESCRIPTIONS = {
-  'seed-004': 'Real-time conversational assistant from xAI.',
-  'seed-005': 'AI assistant integrated across Microsoft products.',
-  'seed-006': 'One place to compare many leading AI models.',
-  'seed-008': 'Search scientific research in plain language.',
-  'seed-009': 'Research assistant for literature reviews and evidence.',
-  'seed-011': 'AI-powered search for academic literature.',
-  'seed-012': 'Visual exploration of scholarly papers and authors.',
-  'seed-013': 'Content platform for marketing teams.',
-  'seed-014': 'Writing feedback for clarity, tone, and correctness.',
-  'seed-015': 'Enterprise writing and brand governance platform.',
-  'seed-016': 'Creative writing companion for fiction authors.',
-  'seed-017': 'AI workflows for sales and marketing copy.',
-  'seed-019': 'A family of powerful image-generation models.',
-  'seed-022': 'Commercially-oriented creative image generation.',
-  'seed-023': 'Open image models with a broad local ecosystem.',
-  'seed-024': 'Node-based interface for advanced image workflows.',
-  'seed-027': 'Generative video tools and AI-powered editing.',
-  'seed-028': 'Text-to-video and image-to-video generation.',
-  'seed-029': 'Fast, playful video generation and effects.',
-  'seed-030': 'Generative video and camera motion from Luma.',
-  'seed-031': 'Natural voice generation, dubbing, and sound effects.',
-  'seed-032': 'Generate songs from a text prompt.',
-  'seed-033': 'Music creation with detailed prompt control.',
-  'seed-035': 'Edit audio and video like a text document.',
-  'seed-036': 'Agentic coding in the terminal.',
-  'seed-038': 'AI-first code editor with agent workflows.',
-  'seed-039': 'AI pair programmer embedded in developer tools.',
-  'seed-041': 'Browser-based app building with AI assistance.',
-  'seed-042': 'Open-source autonomous coding agent for VS Code.',
-  'seed-044': 'Flexible workflow automation with self-hosting options.',
-  'seed-045': 'Connect apps and automate business workflows.',
-  'seed-050': 'Analytics and insights within Tableau.',
-  'seed-051': 'AI assistance for Microsoft business intelligence.',
-  'seed-052': 'Collaborative notebooks for data teams.',
-  'seed-053': 'Writing, search, and knowledge assistance inside Notion.',
-  'seed-054': 'AI in Word, Excel, PowerPoint, and Teams.',
-  'seed-055': 'AI-first notes and knowledge capture.',
-  'seed-056': 'AI planning for calendar, tasks, and focus.',
-  'seed-057': 'Smart scheduling for habits and flexible work.',
-  'seed-059': 'Product design and collaborative visual systems.',
-  'seed-060': 'AI help for diagrams, workshops, and whiteboards.',
-  'seed-061': 'AI-native presentations, documents, and sites.',
-  'seed-062': 'Generate and publish responsive web experiences.',
-  'seed-063': 'Meeting transcription and collaborative notes.',
-  'seed-064': 'Record, transcribe, and search conversations.',
-  'seed-065': 'AI meeting notes that build from your context.',
-  'seed-066': 'Guided learning assistant from Khan Academy.',
-  'seed-068': 'AI-powered language practice and explanations.',
-  'seed-069': 'Legal AI for professional services teams.',
-  'seed-070': 'AI contract review and drafting in Microsoft Word.',
-  'seed-072': 'Personal health assessment and guidance.',
-  'seed-074': 'Personal finance planning and tracking.',
-  'seed-075': 'Computational intelligence and technical answers.',
-  'seed-076': 'Content optimization based on search data.',
-  'seed-077': 'AI capabilities in a customer platform.',
-  'seed-078': 'Search intelligence and SEO research.',
-  'seed-079': 'Text and image to 3D asset generation.',
-  'seed-081': 'Prompt-to-3D experiments for interactive scenes.'
-};
 
 function makeSeed() {
   const now = Date.now();
@@ -232,24 +182,26 @@ function makeSeed() {
       id: `seed-${String(index + 1).padStart(3, '0')}`,
       categoryId, name, description, url, rating, pricing,
       tags: tags.split(',').filter(Boolean), notes: '',
-      favorite: ['ChatGPT', 'Claude', 'Perplexity', 'Cursor', 'n8n'].includes(name),
+      favorite: false,
       addedAt: now - (seedEntries.length - index) * 3600000,
       ...(MODEL_QUALITY[name.toLowerCase()] || {})
     })),
     notes: 'A few things to explore:\n• Build a repeatable research workflow with NotebookLM + Perplexity\n• Test an n8n agent for weekly industry summaries\n• Compare image workflows: Midjourney, FLUX, and ComfyUI',
-    favoritesOrder: ['seed-001', 'seed-002', 'seed-007', 'seed-038', 'seed-045'],
+    favoritesOrder: [],
     preferences: { pricing: 'All', category: 'All', view: 'grid', sort: 'manual' }
   };
 }
 
+let restoredFromBackup = null;
 function safeLoad() {
   try {
     const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY));
-    if (validData(parsed)) {
-      const fresh = new Map(makeSeed().tools.map(t => [t.id, t.description]));
-      parsed.tools.forEach(t => { if (LEGACY_DESCRIPTIONS[t.id] && t.description === LEGACY_DESCRIPTIONS[t.id]) t.description = fresh.get(t.id); });
-      parsed.tools.forEach(syncRating); return { ...parsed, preferences: { ...makeSeed().preferences, ...parsed.preferences } }; }
+    if (validData(parsed)) { parsed.tools.forEach(syncRating); return { ...parsed, preferences: { ...makeSeed().preferences, ...parsed.preferences } }; }
   } catch { /* localStorage or malformed data falls back safely */ }
+  try {
+    const newest = listBackups()[0];
+    if (newest) { restoredFromBackup = newest; newest.data.tools.forEach(syncRating); return { ...newest.data, preferences: { ...makeSeed().preferences, ...newest.data.preferences } }; }
+  } catch { /* no usable backup */ }
   return makeSeed();
 }
 
@@ -272,8 +224,37 @@ const app = document.querySelector('#app');
 const modalRoot = document.querySelector('#modal-root');
 const importInput = document.querySelector('#import-file');
 
+// --- Automatic backups ---------------------------------------------------------------------
+// The library lives in one localStorage key, so one bad write (a migration, an import, a script
+// clearing the key) used to be unrecoverable. Now the last few full copies are kept under separate
+// keys: one is taken daily, one before any import, and one whenever a save would shrink the
+// library by half or more. If the main key is ever empty on load, the newest backup is restored.
+function listBackups() {
+  const out = [];
+  for (let i = 0; i < localStorage.length; i += 1) {
+    const key = localStorage.key(i); if (!key?.startsWith(BACKUP_PREFIX)) continue;
+    try { const data = JSON.parse(localStorage.getItem(key)); if (validData(data)) out.push({ key, savedAt: Number(key.slice(BACKUP_PREFIX.length)), tools: data.tools.length, categories: data.categories.length, data }); } catch { /* skip unreadable backup */ }
+  }
+  return out.sort((a, b) => b.savedAt - a.savedAt);
+}
+function snapshot(reason = 'manual') {
+  const raw = localStorage.getItem(STORAGE_KEY); if (!raw) return null;
+  try { if (!validData(JSON.parse(raw))) return null; } catch { return null; }
+  const key = `${BACKUP_PREFIX}${Date.now()}`;
+  try { localStorage.setItem(key, raw); } catch { return null; }
+  listBackups().slice(MAX_BACKUPS).forEach(b => localStorage.removeItem(b.key));
+  return { key, reason };
+}
 function persist() {
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
+  try {
+    const previous = (() => { try { const d = JSON.parse(localStorage.getItem(STORAGE_KEY)); return validData(d) ? d : null; } catch { return null; } })();
+    if (previous) {
+      const shrinking = previous.tools.length >= 10 && state.tools.length < previous.tools.length / 2;
+      const newest = listBackups()[0];
+      if (shrinking || !newest || Date.now() - newest.savedAt > 24 * 3600000) snapshot(shrinking ? 'shrink' : 'daily');
+    }
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  }
   catch { showToast('Your browser could not save this change locally.'); }
 }
 
@@ -473,6 +454,7 @@ function render() {
       <div class="top-actions">
         <button class="btn ghost" id="import-btn" title="Restore a JSON backup"><span>↥</span><span class="label">Import</span></button>
         <button class="btn ghost" id="export-btn" title="Download a JSON backup"><span>⇩</span><span class="label">Export</span></button>
+        <button class="btn ghost" id="backups-btn" title="Automatic local backups"><span>⟲</span><span class="label">Backups</span></button>
         <button class="btn ghost" id="add-category-top-btn" title="Create a new category"><span>＋</span><span class="label">Add category</span></button>
         <button class="btn primary" id="add-tool-btn"><span>＋</span><span class="label">Add tool</span></button>
       </div>
@@ -566,6 +548,7 @@ function bindAppEvents() {
   document.querySelector('#add-category-btn')?.addEventListener('click', () => openCategoryForm());
   document.querySelector('#add-category-top-btn')?.addEventListener('click', () => openCategoryForm());
   document.querySelector('#export-btn')?.addEventListener('click', exportData);
+  document.querySelector('#backups-btn')?.addEventListener('click', openBackups);
   document.querySelector('#import-btn')?.addEventListener('click', () => importInput.click());
   document.querySelectorAll('[data-menu-id]').forEach(button => button.addEventListener('click', event => { event.stopPropagation(); openMenuId = openMenuId === button.dataset.menuId ? null : button.dataset.menuId; render(); }));
   document.querySelectorAll('[data-category-action]').forEach(button => button.addEventListener('click', () => handleCategoryAction(button.dataset.categoryAction, button.dataset.categoryId)));
@@ -719,6 +702,19 @@ function openCategoryForm(category = null) {
   setTimeout(() => document.querySelector('#category-name')?.focus(), 0);
 }
 
+function openBackups() {
+  const backups = listBackups();
+  const rows = backups.map(b => `<div class="backup-row"><div><strong>${new Date(b.savedAt).toLocaleString()}</strong><span>${b.tools} tools · ${b.categories} categories</span></div><button class="btn small" data-restore-backup="${b.key}">Restore</button></div>`).join('');
+  activeModal = 'backups';
+  modalRoot.innerHTML = `<div class="modal-backdrop" data-close-backdrop><section class="modal small-modal" role="dialog" aria-modal="true" aria-labelledby="backups-title"><header class="modal-header"><div><h2 id="backups-title">Local backups</h2><p>Kept automatically in this browser: daily, before imports, and before any large deletion.</p></div><button class="modal-close" data-close-modal aria-label="Close">×</button></header><div class="modal-body">${rows || '<p class="confirm-text">No backups yet — one is taken on the next save.</p>'}<p class="detail-source">Current library: ${state.tools.length} tools · ${state.categories.length} categories. Backups live in this browser only; use Export for a copy you can keep elsewhere.</p></div><footer class="modal-footer"><button class="btn" data-close-modal>Close</button><button class="btn primary" id="snapshot-now">Save a backup now</button></footer></section></div>`;
+  bindModalEvents();
+  document.querySelector('#snapshot-now')?.addEventListener('click', () => { persist(); const made = snapshot('manual'); showToast(made ? 'Backup saved.' : 'Nothing to back up yet.'); openBackups(); });
+  modalRoot.querySelectorAll('[data-restore-backup]').forEach(button => button.addEventListener('click', () => {
+    const backup = backups.find(b => b.key === button.dataset.restoreBackup); if (!backup) return;
+    openConfirm({ title: 'Restore this backup?', text: `It holds ${backup.tools} tools and ${backup.categories} categories from ${new Date(backup.savedAt).toLocaleString()}. Your current library (${state.tools.length} tools) is backed up first, then replaced.`, confirmLabel: 'Restore', onConfirm: () => { persist(); snapshot('before-restore'); backup.data.tools.forEach(syncRating); state = { ...backup.data, preferences: { ...makeSeed().preferences, ...backup.data.preferences } }; query = ''; closeModal(); persist(); render(); showToast('Backup restored.'); } });
+  }));
+}
+
 function openConfirm({ title, text, confirmLabel, danger = false, onConfirm }) {
   activeModal = 'confirm'; modalRoot.innerHTML = `<div class="modal-backdrop" data-close-backdrop><section class="modal small-modal" role="dialog" aria-modal="true" aria-labelledby="confirm-title"><header class="modal-header"><div><h2 id="confirm-title">${esc(title)}</h2><p>Confirmation required</p></div><button class="modal-close" data-close-modal aria-label="Close">×</button></header><div class="modal-body"><p class="confirm-text">${esc(text)}</p></div><footer class="modal-footer"><button class="btn" data-close-modal>Cancel</button><button class="btn ${danger ? 'danger' : 'primary'}" id="confirm-action">${esc(confirmLabel)}</button></footer></section></div>`; bindModalEvents(); document.querySelector('#confirm-action').addEventListener('click', onConfirm); }
 
@@ -735,9 +731,10 @@ function closeModal() { activeModal = null; modalRoot.innerHTML = ''; }
 
 function exportData() { const payload = { version: 1, exportedAt: new Date().toISOString(), ...state }; const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' }); const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = `ai-tools-overview-backup-${new Date().toISOString().slice(0, 10)}.json`; document.body.append(link); link.click(); link.remove(); URL.revokeObjectURL(link.href); showToast('Backup downloaded.'); }
 
-importInput.addEventListener('change', event => { const [file] = event.target.files; event.target.value = ''; if (!file) return; if (file.size > 5 * 1024 * 1024) { showToast('That backup is larger than 5 MB and was not imported.'); return; } const reader = new FileReader(); reader.onload = () => { try { const imported = JSON.parse(reader.result); if (!validData(imported)) throw new Error('This does not look like an AI Tools Overview backup.'); const normalized = { categories: imported.categories.map(c => ({ id: String(c.id), name: String(c.name).slice(0, 45), description: String(c.description || '').slice(0, 160), icon: String(c.icon || '✦').slice(0, 4), color: /^#[0-9a-f]{6}$/i.test(c.color || '') ? c.color : '#4b9cff', collapsed: Boolean(c.collapsed), expanded: Boolean(c.expanded) })), tools: imported.tools.map(t => ({ id: String(t.id), categoryId: String(t.categoryId), name: String(t.name).slice(0, 70), description: String(t.description || '').slice(0, 240), url: (() => { try { return normalizedUrl(String(t.url || '')); } catch { return ''; } })(), favicon: String(t.favicon || ''), rating: Math.max(1, Math.min(5, Number(t.rating) || 3)), pricing: PRICING.includes(t.pricing) ? t.pricing : 'Freemium', tags: Array.isArray(t.tags) ? t.tags.map(x => String(x).slice(0, 30)).slice(0, 8) : [], notes: String(t.notes || '').slice(0, 1000), favorite: Boolean(t.favorite), addedAt: Number(t.addedAt) || Date.now(), quality: Number.isFinite(Number(t.quality)) ? Math.max(0, Math.min(100, Number(t.quality))) : null, costPerTask: Number.isFinite(Number(t.costPerTask)) ? Number(t.costPerTask) : null, poweredBy: t.poweredBy ? String(t.poweredBy).slice(0, 120) : null, qualityLabel: t.qualityLabel ? String(t.qualityLabel).slice(0, 60) : null })).map(syncRating).filter(t => imported.categories.some(c => String(c.id) === t.categoryId)), notes: String(imported.notes || '').slice(0, 5000), favoritesOrder: Array.isArray(imported.favoritesOrder) ? imported.favoritesOrder.map(String) : [], preferences: { ...makeSeed().preferences, ...(imported.preferences || {}) } }; openConfirm({ title: 'Restore this backup?', text: `It contains ${normalized.tools.length} tools and ${normalized.categories.length} categories. Restoring will replace the current local library.`, confirmLabel: 'Restore backup', onConfirm: () => { state = normalized; query = ''; closeModal(); persist(); render(); showToast('Backup restored successfully.'); } }); } catch { showToast('That file is not a valid backup. Nothing changed.'); } }; reader.readAsText(file); });
+importInput.addEventListener('change', event => { const [file] = event.target.files; event.target.value = ''; if (!file) return; if (file.size > 5 * 1024 * 1024) { showToast('That backup is larger than 5 MB and was not imported.'); return; } const reader = new FileReader(); reader.onload = () => { try { const imported = JSON.parse(reader.result); if (!validData(imported)) throw new Error('This does not look like an AI Tools Overview backup.'); const normalized = { categories: imported.categories.map(c => ({ id: String(c.id), name: String(c.name).slice(0, 45), description: String(c.description || '').slice(0, 160), icon: String(c.icon || '✦').slice(0, 4), color: /^#[0-9a-f]{6}$/i.test(c.color || '') ? c.color : '#4b9cff', collapsed: Boolean(c.collapsed), expanded: Boolean(c.expanded) })), tools: imported.tools.map(t => ({ id: String(t.id), categoryId: String(t.categoryId), name: String(t.name).slice(0, 70), description: String(t.description || '').slice(0, 240), url: (() => { try { return normalizedUrl(String(t.url || '')); } catch { return ''; } })(), favicon: String(t.favicon || ''), rating: Math.max(1, Math.min(5, Number(t.rating) || 3)), pricing: PRICING.includes(t.pricing) ? t.pricing : 'Freemium', tags: Array.isArray(t.tags) ? t.tags.map(x => String(x).slice(0, 30)).slice(0, 8) : [], notes: String(t.notes || '').slice(0, 1000), favorite: Boolean(t.favorite), addedAt: Number(t.addedAt) || Date.now(), quality: Number.isFinite(Number(t.quality)) ? Math.max(0, Math.min(100, Number(t.quality))) : null, costPerTask: Number.isFinite(Number(t.costPerTask)) ? Number(t.costPerTask) : null, poweredBy: t.poweredBy ? String(t.poweredBy).slice(0, 120) : null, qualityLabel: t.qualityLabel ? String(t.qualityLabel).slice(0, 60) : null })).map(syncRating).filter(t => imported.categories.some(c => String(c.id) === t.categoryId)), notes: String(imported.notes || '').slice(0, 5000), favoritesOrder: Array.isArray(imported.favoritesOrder) ? imported.favoritesOrder.map(String) : [], preferences: { ...makeSeed().preferences, ...(imported.preferences || {}) } }; openConfirm({ title: 'Restore this backup?', text: `It contains ${normalized.tools.length} tools and ${normalized.categories.length} categories. Restoring will replace the current local library.`, confirmLabel: 'Restore backup', onConfirm: () => { persist(); snapshot('before-import'); state = normalized; query = ''; closeModal(); persist(); render(); showToast('Backup restored successfully.'); } }); } catch { showToast('That file is not a valid backup. Nothing changed.'); } }; reader.readAsText(file); });
 
 window.addEventListener('pagehide', persist);
+if (restoredFromBackup) { persist(); setTimeout(() => showToast(`Library was empty — restored the automatic backup from ${new Date(restoredFromBackup.savedAt).toLocaleString()}.`), 300); }
 document.addEventListener('keydown', event => { if (event.key === '/' && !activeModal && !['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)) { event.preventDefault(); document.querySelector('#global-search')?.focus(); } if (event.key === 'Escape' && activeModal) closeModal(); });
 document.addEventListener('click', event => { if (openMenuId && !event.target.closest('.category-menu-wrap')) { openMenuId = null; render(); } });
 
