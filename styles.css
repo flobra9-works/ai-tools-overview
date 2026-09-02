@@ -85,3 +85,8 @@ h1{font-size:clamp(24px,2.3vw,34px)}.eyebrow{margin-bottom:5px}
 .label-row{display:flex;align-items:center;justify-content:space-between;gap:8px}
 .link-btn{background:none;border:0;padding:0;color:var(--blue);font-size:11px;font-weight:600;letter-spacing:.02em}
 .link-btn:hover{text-decoration:underline}
+
+/* Derived ratings */
+.stars.derived{color:#9be07c}
+.rating-note{font:500 10px "DM Mono";color:#9be07c;text-transform:none;letter-spacing:0}
+.field select:disabled{opacity:.75;cursor:not-allowed}

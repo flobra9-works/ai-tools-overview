@@ -65,3 +65,10 @@ from [Artificial Analysis](https://artificialanalysis.ai):
 - GitHub Copilot isn't benchmarked as an agent there, so its number is an
   approximation via its default underlying chat model, same as Microsoft
   Copilot; the detail view says so explicitly.
+
+For these tools the **star rating is derived from the AA score** rather than
+hand-picked: each score is scaled against the current top of its own
+leaderboard (Intelligence Index 63, Coding Agent Index 68), then >=95% -> 5 stars,
+>=85% -> 4, >=70% -> 3, >=55% -> 2, below -> 1. Derived stars show in green,
+and the rating dropdown is locked for them. Every other tool keeps a
+personal 1-5 rating you set yourself.
