@@ -1,6 +1,10 @@
 const STORAGE_KEY = 'ai-tools-overview-v2';
 const BACKUP_PREFIX = `${STORAGE_KEY}-backup-`; // automatic local backups live under this prefix (see listBackups)
 const MAX_BACKUPS = 4;
+// Bumped whenever the seed catalog is replaced wholesale. A stored library that is still a pristine
+// older seed (only seed-### tools, only seed categories, default notes) is upgraded to the new one;
+// anything the user added or renamed makes the library non-pristine and it is left alone.
+const SEED_VERSION = 2;
 
 const PREVIEW_LIMIT = 5; // tools shown per category before "Show more"
 
@@ -188,15 +192,30 @@ function makeSeed() {
     })),
     notes: 'A few things to explore:\n• Build a repeatable research workflow with NotebookLM + Perplexity\n• Test an n8n agent for weekly industry summaries\n• Compare image workflows: Midjourney, FLUX, and ComfyUI',
     favoritesOrder: [],
-    preferences: { pricing: 'All', category: 'All', view: 'grid', sort: 'manual' }
+    preferences: { pricing: 'All', category: 'All', view: 'grid', sort: 'manual' },
+    seedVersion: SEED_VERSION
   };
+}
+
+function isPristineOldSeed(data) {
+  if ((data.seedVersion || 1) >= SEED_VERSION) return false;
+  // The previous seed shipped exactly 81 seed-### tools in seed categories (user-made categories get
+  // 'category-…' ids). Any addition, deletion, or renamed notes makes the library non-pristine.
+  const seed = makeSeed();
+  const onlySeedTools = data.tools.length === 81 && data.tools.every(t => /^seed-\d+$/.test(t.id));
+  const onlySeedCategories = data.categories.every(c => !String(c.id).startsWith('category-'));
+  const defaultNotes = !data.notes || data.notes === seed.notes;
+  return onlySeedTools && onlySeedCategories && defaultNotes;
 }
 
 let restoredFromBackup = null;
 function safeLoad() {
   try {
     const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY));
-    if (validData(parsed)) { parsed.tools.forEach(syncRating); return { ...parsed, preferences: { ...makeSeed().preferences, ...parsed.preferences } }; }
+    if (validData(parsed)) {
+      if (isPristineOldSeed(parsed)) return makeSeed();
+      parsed.tools.forEach(syncRating); return { ...parsed, preferences: { ...makeSeed().preferences, ...parsed.preferences } };
+    }
   } catch { /* localStorage or malformed data falls back safely */ }
   try {
     const newest = listBackups()[0];
