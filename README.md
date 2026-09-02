@@ -14,7 +14,11 @@ npm run dev
 
 Then open `http://localhost:5173`. Set `PORT` to use a different port, e.g. `PORT=5273 npm run dev`.
 
-No install step, account, database, or network connection is required. All data is stored in the browser's local storage.
+No install step, account, or database is required, and the app itself works offline. All data is stored in the
+browser's local storage. The one thing that goes online is the **Add/Edit tool** form: when you enter a website
+(or a name it can't match locally) it asks [microlink.io](https://microlink.io) — falling back to
+[r.jina.ai](https://jina.ai/reader) — for that page's own description, and DuckDuckGo's instant-answer API to
+resolve a bare name to its official site. Nothing else is sent anywhere.
 
 ## Publish with GitHub Pages
 
@@ -42,10 +46,12 @@ The included GitHub Actions workflow deploys this static application to GitHub P
 Type a name that matches something in the built-in tool library (all 81 seed
 tools, by name) and the rest of the form — category, description, website,
 pricing, rating, tags — fills in automatically; you can still edit anything
-it suggests. Pasting a website URL still works as a lighter-weight fallback
-for domains outside the library. A name with no match in the library (i.e.
-any genuinely new tool) needs its details filled in by hand — this is a
-local-first app with no backend, so it can't look anything up live.
+it suggests. For a tool that isn't in the library, the form goes online:
+enter the website and its description is pulled from the page's own
+meta/og description (the "subtitle" of the homepage); enter just a name
+and it tries DuckDuckGo to find the official site and a one-line summary,
+then fetches the site's description. The **↻ From website** button next to
+Description re-fetches on demand, for any tool, including the curated ones.
 
 A few tools also carry a **quality** score and **cost per task**, sourced
 from [Artificial Analysis](https://artificialanalysis.ai):

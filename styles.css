@@ -80,3 +80,8 @@ h1{font-size:clamp(24px,2.3vw,34px)}.eyebrow{margin-bottom:5px}
 .show-more:hover{background:color-mix(in srgb,var(--accent) 18%,transparent)}
 .lower-grid{margin-top:12px;gap:10px}.notes-panel,.favorites-panel{padding:12px}.notes-area{min-height:110px}
 @media (max-width:650px){.category-grid{grid-template-columns:1fr}.tool-card.list-card{grid-template-columns:26px minmax(0,1fr) auto}}
+
+/* Description fetch action */
+.label-row{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.link-btn{background:none;border:0;padding:0;color:var(--blue);font-size:11px;font-weight:600;letter-spacing:.02em}
+.link-btn:hover{text-decoration:underline}

@@ -266,6 +266,80 @@ function applyNameInfo(form) {
   if (status) status.textContent = info.quality != null ? `${info.source} Rated ${info.quality}/100 quality · ~$${info.costPerTask.toFixed(2)}/task (artificialanalysis.ai).` : info.source;
 }
 
+// --- Online description lookups (only ever called from the Add/Edit tool form) ---
+// Homepage metadata via microlink.io (CORS-enabled, free tier), falling back to r.jina.ai;
+// bare names via DuckDuckGo's instant-answer API, which can return the official site and a one-liner.
+function tidyDescription(text, max = 240) {
+  const clean = String(text || '').replace(/\s+/g, ' ').trim();
+  if (clean.length <= max) return clean;
+  const cut = clean.slice(0, max); const end = Math.max(cut.lastIndexOf('. '), cut.lastIndexOf('! '), cut.lastIndexOf('? '));
+  return (end > 60 ? cut.slice(0, end + 1) : cut.slice(0, cut.lastIndexOf(' ')) + '…').trim();
+}
+function firstSentence(text) { const clean = String(text || '').replace(/\s+/g, ' ').trim(); const m = clean.match(/^.+?[.!?](\s|$)/); return tidyDescription(m ? m[0] : clean); }
+async function fetchJson(url, init = {}, timeoutMs = 12000) {
+  const ctrl = new AbortController(); const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try { const res = await fetch(url, { ...init, signal: ctrl.signal }); return res.ok ? await res.json() : null; } catch { return null; } finally { clearTimeout(timer); }
+}
+async function lookupWebsite(url) {
+  const target = new URL(url); const host = target.hostname.replace(/^www\./, '');
+  const ml = await fetchJson(`https://api.microlink.io/?url=${encodeURIComponent(target.href)}`);
+  if (ml?.status === 'success' && ml.data && (ml.data.description || ml.data.title)) return { description: tidyDescription(ml.data.description), title: ml.data.title || '', favicon: ml.data.logo?.url || '', host };
+  const jina = await fetchJson(`https://r.jina.ai/${target.href}`, { headers: { Accept: 'application/json' } }, 20000);
+  const data = jina?.data; if (!data) return null;
+  const description = tidyDescription(data.description) || firstSentence(String(data.content || '').replace(/^#.*$/gm, '').replace(/\[[^\]]*\]\([^)]*\)/g, ''));
+  return description || data.title ? { description, title: data.title || '', favicon: '', host } : null;
+}
+async function lookupName(name) {
+  // Pin region/language so the summary comes back in English, and disambiguate "X" vs "X (software)":
+  // try the bare name, and if that yields neither a site nor a software-ish summary, try "X software".
+  const ask = async q => {
+    const ddg = await fetchJson(`https://api.duckduckgo.com/?q=${encodeURIComponent(q)}&format=json&no_html=1&no_redirect=1&skip_disambig=1&kl=us-en&kad=en_US`);
+    if (!ddg) return null;
+    const site = ddg.Results?.[0]?.FirstURL || (ddg.Infobox?.content || []).find(c => /web ?site/i.test(c.label || ''))?.value || '';
+    let url = ''; try { url = site ? normalizedUrl(site) : ''; } catch { url = ''; }
+    const description = firstSentence(ddg.AbstractText);
+    const softwareish = /\b(app|application|software|platform|tool|service|assistant|editor|generator|model|program|company|startup|AI|website|browser|extension|plugin|API|framework|library|engine)\b/i.test(description);
+    return { url, description, softwareish };
+  };
+  const plain = await ask(name);
+  if (plain?.url) return plain;
+  const specific = await ask(`${name} software`);
+  if (specific?.url) return specific;
+  const pick = [specific, plain].find(r => r?.softwareish);
+  return pick ? { url: '', description: pick.description } : null;
+}
+
+let lookupToken = 0;
+async function fetchDescription(form, { force = false } = {}) {
+  const status = form.querySelector('#autofill-status'); const urlField = form.elements.url; const descField = form.elements.description;
+  let url; try { url = normalizedUrl(urlField?.value); } catch { url = ''; }
+  const canFill = force || !descField.value.trim() || descField.dataset.auto === 'true';
+  if (!url || !canFill) return;
+  const token = ++lookupToken; const host = new URL(url).hostname.replace(/^www\./, '');
+  if (status) status.textContent = `Fetching the description from ${host}…`;
+  const info = await lookupWebsite(url);
+  if (token !== lookupToken || !form.isConnected) return;
+  if (!info?.description) { if (status) status.textContent = `${host} didn’t offer a description — write a line yourself.`; return; }
+  descField.value = info.description; descField.dataset.auto = 'true'; delete descField.dataset.manual;
+  const favicon = form.querySelector('[name="favicon"]'); if (favicon && !favicon.value && info.favicon) favicon.value = info.favicon;
+  form.dataset.enriched = 'true';
+  if (status) status.textContent = `Description taken from ${host}. Edit it freely.`;
+}
+async function resolveByName(form) {
+  const name = form.elements.name?.value.trim(); const status = form.querySelector('#autofill-status');
+  if (!name || name.length < 3) return;
+  const token = ++lookupToken;
+  if (status) status.textContent = `Looking “${name}” up online…`;
+  const found = await lookupName(name);
+  if (token !== lookupToken || !form.isConnected) return;
+  const fill = fieldFiller(form);
+  if (found?.url) fill('url', found.url);
+  if (found?.description) fill('description', found.description);
+  if (found?.url || found?.description) form.dataset.enriched = 'true';
+  if (form.elements.url.value.trim()) { lookupToken--; await fetchDescription(form); return; }
+  if (status) status.textContent = found?.description ? `Found a summary for “${name}”. Add the website to pull its own description.` : `Nothing found online for “${name}” — add its website and the description will follow.`;
+}
+
 function showToast(message) {
   let toast = document.querySelector('.toast');
   if (!toast) { toast = document.createElement('div'); toast.className = 'toast'; document.body.append(toast); }
@@ -513,7 +587,7 @@ function openToolDetail(id) {
 
 function openToolForm(tool = null, preselectedCategory = null) {
   activeModal = 'tool-form'; const isEdit = Boolean(tool); const defaultCategory = tool?.categoryId || preselectedCategory || state.categories[0]?.id || '';
-  modalRoot.innerHTML = `<div class="modal-backdrop" data-close-backdrop><section class="modal" role="dialog" aria-modal="true" aria-labelledby="tool-form-title"><header class="modal-header"><div><h2 id="tool-form-title">${isEdit ? 'Edit tool' : 'Add a tool'}</h2><p>${isEdit ? 'Update this entry in your library.' : 'Add a useful AI tool to your personal map.'}</p></div><button class="modal-close" data-close-modal aria-label="Close">×</button></header><form id="tool-form"><div class="modal-body"><div class="form-grid"><div class="field full"><label for="tool-name">Tool name *</label><input id="tool-name" name="name" required maxlength="70" value="${esc(tool?.name || '')}" placeholder="e.g. ComfyUI — known tools fill in the rest" autocomplete="off" /></div><div class="field"><label for="tool-category">Category *</label><select id="tool-category" name="categoryId" required>${state.categories.map(c => `<option value="${esc(c.id)}" ${c.id === defaultCategory ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select></div><div class="field full"><label for="tool-description">Description *</label><textarea id="tool-description" name="description" required maxlength="240" placeholder="What is this tool useful for?">${esc(tool?.description || '')}</textarea></div><div class="field full"><label for="tool-url">Website URL (optional)</label><input id="tool-url" name="url" maxlength="500" type="text" value="${esc(tool?.url || '')}" placeholder="https://example.com" /></div><div class="field"><label for="tool-rating">Rating</label><select id="tool-rating" name="rating">${[5,4,3,2,1].map(n => `<option value="${n}" ${Number(tool?.rating || 5) === n ? 'selected' : ''}>${n} / 5</option>`).join('')}</select></div><div class="field"><label for="tool-pricing">Pricing</label><select id="tool-pricing" name="pricing">${PRICING.map(p => `<option value="${esc(p)}" ${tool?.pricing === p ? 'selected' : ''}>${esc(p)}</option>`).join('')}</select></div><div class="field full"><label for="tool-tags">Tags</label><input id="tool-tags" name="tags" maxlength="160" value="${esc((tool?.tags || []).join(', '))}" placeholder="e.g. image, local, workflow" /></div><div class="field full"><label for="tool-notes">Personal notes</label><textarea id="tool-notes" name="notes" maxlength="1000" placeholder="Why is this useful to you?">${esc(tool?.notes || '')}</textarea></div><label class="check-field"><input name="favorite" type="checkbox" ${tool?.favorite ? 'checked' : ''}/> Add to my tool stack</label></div><p id="form-error" class="form-error" role="alert"></p></div><footer class="modal-footer"><button type="button" class="btn" data-close-modal>Cancel</button><button type="submit" class="btn primary">${isEdit ? 'Save changes' : 'Add tool'}</button></footer></form></section></div>`;
+  modalRoot.innerHTML = `<div class="modal-backdrop" data-close-backdrop><section class="modal" role="dialog" aria-modal="true" aria-labelledby="tool-form-title"><header class="modal-header"><div><h2 id="tool-form-title">${isEdit ? 'Edit tool' : 'Add a tool'}</h2><p>${isEdit ? 'Update this entry in your library.' : 'Add a useful AI tool to your personal map.'}</p></div><button class="modal-close" data-close-modal aria-label="Close">×</button></header><form id="tool-form"><div class="modal-body"><div class="form-grid"><div class="field full"><label for="tool-name">Tool name *</label><input id="tool-name" name="name" required maxlength="70" value="${esc(tool?.name || '')}" placeholder="e.g. ComfyUI — known tools fill in the rest" autocomplete="off" /></div><div class="field"><label for="tool-category">Category *</label><select id="tool-category" name="categoryId" required>${state.categories.map(c => `<option value="${esc(c.id)}" ${c.id === defaultCategory ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select></div><div class="field full"><div class="label-row"><label for="tool-description">Description *</label><button type="button" class="link-btn" id="fetch-description-btn" title="Replace the description with the one on the tool’s website">↻ From website</button></div><textarea id="tool-description" name="description" required maxlength="240" placeholder="What is this tool useful for?">${esc(tool?.description || '')}</textarea></div><div class="field full"><label for="tool-url">Website URL (optional)</label><input id="tool-url" name="url" maxlength="500" type="text" value="${esc(tool?.url || '')}" placeholder="https://example.com" /></div><div class="field"><label for="tool-rating">Rating</label><select id="tool-rating" name="rating">${[5,4,3,2,1].map(n => `<option value="${n}" ${Number(tool?.rating || 5) === n ? 'selected' : ''}>${n} / 5</option>`).join('')}</select></div><div class="field"><label for="tool-pricing">Pricing</label><select id="tool-pricing" name="pricing">${PRICING.map(p => `<option value="${esc(p)}" ${tool?.pricing === p ? 'selected' : ''}>${esc(p)}</option>`).join('')}</select></div><div class="field full"><label for="tool-tags">Tags</label><input id="tool-tags" name="tags" maxlength="160" value="${esc((tool?.tags || []).join(', '))}" placeholder="e.g. image, local, workflow" /></div><div class="field full"><label for="tool-notes">Personal notes</label><textarea id="tool-notes" name="notes" maxlength="1000" placeholder="Why is this useful to you?">${esc(tool?.notes || '')}</textarea></div><label class="check-field"><input name="favorite" type="checkbox" ${tool?.favorite ? 'checked' : ''}/> Add to my tool stack</label></div><p id="form-error" class="form-error" role="alert"></p></div><footer class="modal-footer"><button type="button" class="btn" data-close-modal>Cancel</button><button type="submit" class="btn primary">${isEdit ? 'Save changes' : 'Add tool'}</button></footer></form></section></div>`;
   bindModalEvents();
   const toolForm = document.querySelector('#tool-form');
   const urlField = toolForm?.elements.url;
@@ -526,8 +600,9 @@ function openToolForm(tool = null, preselectedCategory = null) {
   const nameField = toolForm?.elements.name;
   nameField?.insertAdjacentHTML('afterend', '<p id="autofill-status" class="autofill-status">Type a tool name from your library — the rest fills in automatically. New tools still need their own details.</p>');
   let enrichmentTimer;
-  nameField?.addEventListener('input', () => { clearTimeout(enrichmentTimer); enrichmentTimer = setTimeout(() => applyNameInfo(toolForm), 350); });
-  urlField?.addEventListener('input', () => { clearTimeout(enrichmentTimer); enrichmentTimer = setTimeout(() => applyWebsiteInfo(toolForm), 550); });
+  nameField?.addEventListener('input', () => { clearTimeout(enrichmentTimer); enrichmentTimer = setTimeout(() => { const matched = nameInfo(nameField.value); applyNameInfo(toolForm); if (!matched && !toolForm.elements.url.value.trim()) resolveByName(toolForm); }, 700); });
+  urlField?.addEventListener('input', () => { clearTimeout(enrichmentTimer); enrichmentTimer = setTimeout(() => { applyWebsiteInfo(toolForm); fetchDescription(toolForm); }, 700); });
+  document.querySelector('#fetch-description-btn')?.addEventListener('click', () => { if (!toolForm.elements.url.value.trim()) { const status = document.querySelector('#autofill-status'); if (status) status.textContent = 'Add the website URL first, then fetch its description.'; toolForm.elements.url.focus(); return; } fetchDescription(toolForm, { force: true }); });
   if (isEdit) { const status = document.querySelector('#autofill-status'); if (status) status.textContent = tool.quality != null ? `Rated ${tool.quality}/100 quality · ~$${Number(tool.costPerTask).toFixed(2)}/task (artificialanalysis.ai).` : 'Edit any field — matching a catalog name will refresh the rest.'; }
   ['name', 'description', 'tags', 'rating', 'pricing'].forEach(field => ['input', 'change'].forEach(type => toolForm?.elements[field]?.addEventListener(type, event => { event.currentTarget.dataset.manual = 'true'; event.currentTarget.dataset.auto = 'false'; })));
   toolForm?.elements.categoryId?.addEventListener('change', event => { event.currentTarget.dataset.manual = 'true'; event.currentTarget.dataset.auto = 'false'; });
