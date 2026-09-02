@@ -26,7 +26,8 @@ The included GitHub Actions workflow deploys this static application to GitHub P
 
 ## Included
 
-- 81 curated seed tools across 18 colorful categories
+- 81 seed tools across 18 colorful categories; 58 of them carry the description from their own
+  homepage (og/meta description, fetched 2 Sep 2026), the rest a short curated line
 - Add, edit, inspect, favorite, and safely delete tools
 - Drag tools between categories or reorder favorites
 - Drag categories by their header to reorder the board, or use **Move earlier / Move later**
