@@ -5,6 +5,11 @@ const MAX_BACKUPS = 4;
 // arrives once via the bookmark (#sync=KEY) and is then kept in this browser. Last write wins by savedAt.
 const SYNC_ENDPOINT = 'https://flobra.app.n8n.cloud/webhook/ai-tools-library';
 const SYNC_KEY_STORAGE = `${STORAGE_KEY}-sync-key`;
+// The key ships with the app so the plain address syncs on every device. This repo is public, so the
+// key is public too: anyone can read or overwrite the library. Accepted for a personal tool list; the
+// n8n side keeps a 30-day history (one snapshot per 10 min) so an overwrite is reversible. A different
+// key can still be given per browser via #sync=… in the address; it then takes precedence there.
+const SYNC_DEFAULT_KEY = '9kI2GUsqdBh4fjqBGMIbrnxM';
 // Bumped whenever the seed catalog is replaced wholesale. A stored library that is still a pristine
 // older seed (only seed-### tools, only seed categories, default notes) is upgraded to the new one;
 // anything the user added or renamed makes the library non-pristine and it is left alone.
@@ -288,7 +293,7 @@ let lastFingerprint = null; let suppressPush = false; let pushTimer = null; let 
 function syncKey() {
   const fromHash = location.hash.match(/[#&]sync=([A-Za-z0-9_-]{8,})/);
   if (fromHash) { try { localStorage.setItem(SYNC_KEY_STORAGE, fromHash[1]); } catch { /* keep going with the hash value */ } return fromHash[1]; }
-  try { return localStorage.getItem(SYNC_KEY_STORAGE) || ''; } catch { return ''; }
+  try { return localStorage.getItem(SYNC_KEY_STORAGE) || SYNC_DEFAULT_KEY; } catch { return SYNC_DEFAULT_KEY; }
 }
 function syncUrl() { return `${SYNC_ENDPOINT}?key=${encodeURIComponent(syncKey())}`; }
 function setSyncStatus(text, kind = 'idle') {
@@ -338,14 +343,14 @@ async function syncPull({ announce = true } = {}) {
   finally { syncBusy = false; }
 }
 function openSync() {
-  const key = syncKey(); const link = key ? `${location.origin}${location.pathname}#sync=${key}` : '';
+  const address = `${location.origin}${location.pathname}`;
+  const custom = (() => { try { return localStorage.getItem(SYNC_KEY_STORAGE); } catch { return null; } })();
   activeModal = 'sync';
-  modalRoot.innerHTML = `<div class="modal-backdrop" data-close-backdrop><section class="modal small-modal" role="dialog" aria-modal="true" aria-labelledby="sync-title"><header class="modal-header"><div><h2 id="sync-title">Cloud sync</h2><p>One library on every device, stored in your n8n data table.</p></div><button class="modal-close" data-close-modal aria-label="Close">×</button></header><div class="modal-body">${key ? `<p class="confirm-text">This browser is linked. Open the same link on any other device and it joins the sync:</p><div class="field full" style="margin-top:10px"><label for="sync-link">Bookmark this on every device</label><input id="sync-link" readonly value="${esc(link)}" /></div><div class="detail-actions" style="padding-top:12px"><button class="btn" id="copy-sync-link">Copy link</button><button class="btn" id="sync-now">Sync now</button><button class="btn danger" id="unlink-sync">Unlink this browser</button></div>` : `<p class="confirm-text">Not linked. Open the dashboard through your sync link (it ends in <code>#sync=…</code>) or paste the key here.</p><div class="field full" style="margin-top:10px"><label for="sync-key-input">Sync key</label><input id="sync-key-input" placeholder="paste the key" autocomplete="off" /></div><div class="detail-actions" style="padding-top:12px"><button class="btn primary" id="link-sync">Link this browser</button></div>`}<p class="detail-source" id="sync-modal-status">${esc(document.querySelector('#sync-status')?.textContent || '')}</p></div></section></div>`;
+  modalRoot.innerHTML = `<div class="modal-backdrop" data-close-backdrop><section class="modal small-modal" role="dialog" aria-modal="true" aria-labelledby="sync-title"><header class="modal-header"><div><h2 id="sync-title">Cloud sync</h2><p>One library on every device, stored in your n8n data table.</p></div><button class="modal-close" data-close-modal aria-label="Close">×</button></header><div class="modal-body"><p class="confirm-text">Every change is saved to the cloud within a second and picked up by any other device the next time it opens this address or comes back to the tab. Nothing to set up.</p><div class="field full" style="margin-top:10px"><label for="sync-link">The address to use everywhere</label><input id="sync-link" readonly value="${esc(address)}" /></div><div class="detail-actions" style="padding-top:12px"><button class="btn" id="copy-sync-link">Copy address</button><button class="btn primary" id="sync-now">Sync now</button>${custom ? '<button class="btn" id="forget-sync-key">Use the default key again</button>' : ''}</div><p class="detail-source" id="sync-modal-status">${esc(document.querySelector('#sync-status')?.textContent || '')}${custom ? ' · this browser uses a custom key from a #sync= link' : ''}</p></div></section></div>`;
   bindModalEvents();
-  document.querySelector('#copy-sync-link')?.addEventListener('click', async () => { try { await navigator.clipboard.writeText(link); showToast('Sync link copied.'); } catch { document.querySelector('#sync-link')?.select(); showToast('Select the link and copy it.'); } });
+  document.querySelector('#copy-sync-link')?.addEventListener('click', async () => { try { await navigator.clipboard.writeText(address); showToast('Address copied.'); } catch { document.querySelector('#sync-link')?.select(); showToast('Select the address and copy it.'); } });
   document.querySelector('#sync-now')?.addEventListener('click', async () => { await syncPull({ announce: true }); const st = document.querySelector('#sync-modal-status'); if (st) st.textContent = document.querySelector('#sync-status')?.textContent || ''; });
-  document.querySelector('#unlink-sync')?.addEventListener('click', () => { try { localStorage.removeItem(SYNC_KEY_STORAGE); } catch { /* nothing to remove */ } history.replaceState(null, '', location.pathname); setSyncStatus('Cloud: not linked'); closeModal(); showToast('This browser no longer syncs. Your local copy stays.'); });
-  document.querySelector('#link-sync')?.addEventListener('click', () => { const value = document.querySelector('#sync-key-input')?.value.trim(); if (!value || value.length < 8) { showToast('That does not look like a sync key.'); return; } try { localStorage.setItem(SYNC_KEY_STORAGE, value); } catch { /* fall through */ } closeModal(); syncPull({ announce: true }); });
+  document.querySelector('#forget-sync-key')?.addEventListener('click', () => { try { localStorage.removeItem(SYNC_KEY_STORAGE); } catch { /* nothing stored */ } history.replaceState(null, '', location.pathname); closeModal(); syncPull({ announce: true }); });
 }
 
 function uid(prefix) { return `${prefix}-${crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`}`; }

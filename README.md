@@ -41,11 +41,13 @@ The included GitHub Actions workflow deploys this static application to GitHub P
   next visit. Storage is per browser and per site address, so a different browser, device, or
   private window starts fresh; use Export/Import to carry a library across.
 - JSON export and validated, confirmation-protected import
-- **Cloud sync across devices** via an n8n webhook: open the dashboard through your sync link
-  (`…/#sync=KEY`) once per browser and every change is pushed to a single row in the
-  `ai_tools_library` data table; every linked browser pulls the latest copy on open and whenever
-  the tab comes back into view. Last write wins by save time. The **Sync** button shows the state,
-  the link to bookmark elsewhere, and lets you unlink. Without a key the app is purely local.
+- **Cloud sync across devices** via an n8n webhook: the plain address works everywhere. Every
+  change is pushed to a single row in the `ai_tools_library` data table; every browser pulls the
+  latest copy on open and whenever the tab comes back into view. Last write wins by save time.
+  The sync key ships inside `app.js` — this repo is public, so treat the library as public and
+  overwritable; before each overwrite the previous version (if older than 10 minutes) is archived
+  to `ai_tools_library_history` and kept 30 days, so a bad write can be rolled back from n8n.
+  A different key can be supplied per browser via `…/#sync=KEY`.
 - Automatic local backups: the last four full copies are kept in the browser (one daily, one before
   any import or restore, one whenever a save would halve the library). If the main storage key is
   ever empty, the newest backup is restored on load. **Backups** in the top bar lists and restores
