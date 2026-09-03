@@ -95,3 +95,10 @@ h1{font-size:clamp(24px,2.3vw,34px)}.eyebrow{margin-bottom:5px}
 .backup-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 0;border-bottom:1px solid var(--line)}
 .backup-row:last-of-type{border-bottom:0}
 .backup-row strong{display:block;font-size:13px}.backup-row span{display:block;font-size:11px;color:#8f9aab;margin-top:2px}
+
+/* Cloud sync */
+.sync-status{display:inline-block;margin-right:8px;padding:2px 8px;border-radius:99px;font:600 10.5px "DM Mono";letter-spacing:.02em;border:1px solid var(--line);color:#9db0ca;vertical-align:1px}
+.sync-status[data-kind="ok"]{color:#9be07c;border-color:rgba(155,224,124,.35)}
+.sync-status[data-kind="busy"]{color:#8db9f8;border-color:rgba(141,185,248,.35)}
+.sync-status[data-kind="error"]{color:#ffb1bd;border-color:rgba(255,177,189,.35)}
+#sync-link{font:12px "DM Mono";color:#cde3ff}

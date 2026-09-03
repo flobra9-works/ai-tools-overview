@@ -1,6 +1,10 @@
 const STORAGE_KEY = 'ai-tools-overview-v2';
 const BACKUP_PREFIX = `${STORAGE_KEY}-backup-`; // automatic local backups live under this prefix (see listBackups)
 const MAX_BACKUPS = 4;
+// Cloud sync: an n8n webhook that stores the whole library as one row and hands it back. The key
+// arrives once via the bookmark (#sync=KEY) and is then kept in this browser. Last write wins by savedAt.
+const SYNC_ENDPOINT = 'https://flobra.app.n8n.cloud/webhook/ai-tools-library';
+const SYNC_KEY_STORAGE = `${STORAGE_KEY}-sync-key`;
 // Bumped whenever the seed catalog is replaced wholesale. A stored library that is still a pristine
 // older seed (only seed-### tools, only seed categories, default notes) is upgraded to the new one;
 // anything the user added or renamed makes the library non-pristine and it is left alone.
@@ -272,9 +276,76 @@ function persist() {
       const newest = listBackups()[0];
       if (shrinking || !newest || Date.now() - newest.savedAt > 24 * 3600000) snapshot(shrinking ? 'shrink' : 'daily');
     }
+    const fingerprint = JSON.stringify({ ...state, savedAt: 0 });
+    if (fingerprint !== lastFingerprint) { state.savedAt = Date.now(); lastFingerprint = fingerprint; if (!suppressPush) schedulePush(); }
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   }
   catch { showToast('Your browser could not save this change locally.'); }
+}
+
+// --- Cloud sync ----------------------------------------------------------------------------
+let lastFingerprint = null; let suppressPush = false; let pushTimer = null; let pushPending = false; let syncBusy = false; let lastSyncText = { text: 'Cloud: …', kind: 'idle' };
+function syncKey() {
+  const fromHash = location.hash.match(/[#&]sync=([A-Za-z0-9_-]{8,})/);
+  if (fromHash) { try { localStorage.setItem(SYNC_KEY_STORAGE, fromHash[1]); } catch { /* keep going with the hash value */ } return fromHash[1]; }
+  try { return localStorage.getItem(SYNC_KEY_STORAGE) || ''; } catch { return ''; }
+}
+function syncUrl() { return `${SYNC_ENDPOINT}?key=${encodeURIComponent(syncKey())}`; }
+function setSyncStatus(text, kind = 'idle') {
+  lastSyncText = { text, kind };
+  const el = document.querySelector('#sync-status'); if (!el) return;
+  el.textContent = text; el.dataset.kind = kind; el.title = kind === 'error' ? 'Changes are kept on this device and pushed again when the cloud is reachable.' : 'Cloud sync via your n8n webhook';
+}
+function schedulePush() { if (!syncKey()) return; pushPending = true; clearTimeout(pushTimer); pushTimer = setTimeout(syncPush, 1200); setSyncStatus('Cloud: saving…', 'busy'); }
+async function syncPush() {
+  if (!syncKey()) return false;
+  clearTimeout(pushTimer);
+  try {
+    const res = await fetch(syncUrl(), { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: JSON.stringify(state) });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.ok) throw new Error(data.error || `HTTP ${res.status}`);
+    pushPending = false; setSyncStatus(`Cloud: saved ${new Date(data.savedAt || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`, 'ok');
+    return true;
+  } catch (error) {
+    setSyncStatus(/unauthorized|401/.test(String(error)) ? 'Cloud: wrong key' : 'Cloud: not reachable — will retry', 'error');
+    pushTimer = setTimeout(syncPush, 20000);
+    return false;
+  }
+}
+async function syncPull({ announce = true } = {}) {
+  if (!syncKey()) { setSyncStatus('Cloud: not linked', 'idle'); return; }
+  if (syncBusy) return; syncBusy = true; setSyncStatus('Cloud: checking…', 'busy');
+  try {
+    const res = await fetch(syncUrl(), { cache: 'no-store' });
+    if (res.status === 401) { setSyncStatus('Cloud: wrong key', 'error'); return; }
+    const data = await res.json();
+    const remote = data?.found && data.library && validData(data.library) ? data.library : null;
+    const remoteAt = Number(remote?.savedAt || data?.savedAt || 0); const localAt = Number(state.savedAt || 0);
+    if (remote && remoteAt > localAt) {
+      persist(); snapshot('before-cloud-pull');
+      remote.tools.forEach(syncRating);
+      state = { ...remote, preferences: { ...makeSeed().preferences, ...remote.preferences }, savedAt: remoteAt };
+      lastFingerprint = JSON.stringify({ ...state, savedAt: 0 });
+      suppressPush = true; persist(); suppressPush = false; query = ''; render();
+      setSyncStatus(`Cloud: loaded ${new Date(remoteAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`, 'ok');
+      if (announce) showToast(`Loaded your latest library from the cloud (${new Date(remoteAt).toLocaleString()}).`);
+    } else if (!remote || localAt > remoteAt || pushPending) {
+      await syncPush();
+    } else {
+      setSyncStatus(`Cloud: in sync`, 'ok');
+    }
+  } catch { setSyncStatus('Cloud: not reachable — using this device’s copy', 'error'); }
+  finally { syncBusy = false; }
+}
+function openSync() {
+  const key = syncKey(); const link = key ? `${location.origin}${location.pathname}#sync=${key}` : '';
+  activeModal = 'sync';
+  modalRoot.innerHTML = `<div class="modal-backdrop" data-close-backdrop><section class="modal small-modal" role="dialog" aria-modal="true" aria-labelledby="sync-title"><header class="modal-header"><div><h2 id="sync-title">Cloud sync</h2><p>One library on every device, stored in your n8n data table.</p></div><button class="modal-close" data-close-modal aria-label="Close">×</button></header><div class="modal-body">${key ? `<p class="confirm-text">This browser is linked. Open the same link on any other device and it joins the sync:</p><div class="field full" style="margin-top:10px"><label for="sync-link">Bookmark this on every device</label><input id="sync-link" readonly value="${esc(link)}" /></div><div class="detail-actions" style="padding-top:12px"><button class="btn" id="copy-sync-link">Copy link</button><button class="btn" id="sync-now">Sync now</button><button class="btn danger" id="unlink-sync">Unlink this browser</button></div>` : `<p class="confirm-text">Not linked. Open the dashboard through your sync link (it ends in <code>#sync=…</code>) or paste the key here.</p><div class="field full" style="margin-top:10px"><label for="sync-key-input">Sync key</label><input id="sync-key-input" placeholder="paste the key" autocomplete="off" /></div><div class="detail-actions" style="padding-top:12px"><button class="btn primary" id="link-sync">Link this browser</button></div>`}<p class="detail-source" id="sync-modal-status">${esc(document.querySelector('#sync-status')?.textContent || '')}</p></div></section></div>`;
+  bindModalEvents();
+  document.querySelector('#copy-sync-link')?.addEventListener('click', async () => { try { await navigator.clipboard.writeText(link); showToast('Sync link copied.'); } catch { document.querySelector('#sync-link')?.select(); showToast('Select the link and copy it.'); } });
+  document.querySelector('#sync-now')?.addEventListener('click', async () => { await syncPull({ announce: true }); const st = document.querySelector('#sync-modal-status'); if (st) st.textContent = document.querySelector('#sync-status')?.textContent || ''; });
+  document.querySelector('#unlink-sync')?.addEventListener('click', () => { try { localStorage.removeItem(SYNC_KEY_STORAGE); } catch { /* nothing to remove */ } history.replaceState(null, '', location.pathname); setSyncStatus('Cloud: not linked'); closeModal(); showToast('This browser no longer syncs. Your local copy stays.'); });
+  document.querySelector('#link-sync')?.addEventListener('click', () => { const value = document.querySelector('#sync-key-input')?.value.trim(); if (!value || value.length < 8) { showToast('That does not look like a sync key.'); return; } try { localStorage.setItem(SYNC_KEY_STORAGE, value); } catch { /* fall through */ } closeModal(); syncPull({ announce: true }); });
 }
 
 function uid(prefix) { return `${prefix}-${crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`}`; }
@@ -463,7 +534,7 @@ function render() {
       <section>
         <p class="eyebrow"><span class="status-dot"></span> Personal AI operating dashboard</p>
         <h1>AI TOOLS <span class="gradient-text">OVERVIEW</span></h1>
-        <p class="subtitle">Your personal map of the AI ecosystem. Find details about the models and tools online here: <a href="https://artificialanalysis.ai/" target="_blank" rel="noopener noreferrer">artificialanalysis.ai</a></p>
+        <p class="subtitle"><span id="sync-status" class="sync-status" data-kind="idle">Cloud: …</span> Your personal map of the AI ecosystem. Find details about the models and tools online here: <a href="https://artificialanalysis.ai/" target="_blank" rel="noopener noreferrer">artificialanalysis.ai</a></p>
       </section>
       <label class="search-wrap" aria-label="Search tools">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>
@@ -474,6 +545,7 @@ function render() {
         <button class="btn ghost" id="import-btn" title="Restore a JSON backup"><span>↥</span><span class="label">Import</span></button>
         <button class="btn ghost" id="export-btn" title="Download a JSON backup"><span>⇩</span><span class="label">Export</span></button>
         <button class="btn ghost" id="backups-btn" title="Automatic local backups"><span>⟲</span><span class="label">Backups</span></button>
+        <button class="btn ghost" id="sync-btn" title="Cloud sync across devices"><span>☁</span><span class="label">Sync</span></button>
         <button class="btn ghost" id="add-category-top-btn" title="Create a new category"><span>＋</span><span class="label">Add category</span></button>
         <button class="btn primary" id="add-tool-btn"><span>＋</span><span class="label">Add tool</span></button>
       </div>
@@ -503,6 +575,7 @@ function render() {
       ${renderFavorites()}
     </section>`;
   bindAppEvents();
+  setSyncStatus(lastSyncText.text, lastSyncText.kind);
 }
 
 function renderCategories(visible) {
@@ -568,6 +641,7 @@ function bindAppEvents() {
   document.querySelector('#add-category-top-btn')?.addEventListener('click', () => openCategoryForm());
   document.querySelector('#export-btn')?.addEventListener('click', exportData);
   document.querySelector('#backups-btn')?.addEventListener('click', openBackups);
+  document.querySelector('#sync-btn')?.addEventListener('click', openSync);
   document.querySelector('#import-btn')?.addEventListener('click', () => importInput.click());
   document.querySelectorAll('[data-menu-id]').forEach(button => button.addEventListener('click', event => { event.stopPropagation(); openMenuId = openMenuId === button.dataset.menuId ? null : button.dataset.menuId; render(); }));
   document.querySelectorAll('[data-category-action]').forEach(button => button.addEventListener('click', () => handleCategoryAction(button.dataset.categoryAction, button.dataset.categoryId)));
@@ -752,9 +826,12 @@ function exportData() { const payload = { version: 1, exportedAt: new Date().toI
 
 importInput.addEventListener('change', event => { const [file] = event.target.files; event.target.value = ''; if (!file) return; if (file.size > 5 * 1024 * 1024) { showToast('That backup is larger than 5 MB and was not imported.'); return; } const reader = new FileReader(); reader.onload = () => { try { const imported = JSON.parse(reader.result); if (!validData(imported)) throw new Error('This does not look like an AI Tools Overview backup.'); const normalized = { categories: imported.categories.map(c => ({ id: String(c.id), name: String(c.name).slice(0, 45), description: String(c.description || '').slice(0, 160), icon: String(c.icon || '✦').slice(0, 4), color: /^#[0-9a-f]{6}$/i.test(c.color || '') ? c.color : '#4b9cff', collapsed: Boolean(c.collapsed), expanded: Boolean(c.expanded) })), tools: imported.tools.map(t => ({ id: String(t.id), categoryId: String(t.categoryId), name: String(t.name).slice(0, 70), description: String(t.description || '').slice(0, 240), url: (() => { try { return normalizedUrl(String(t.url || '')); } catch { return ''; } })(), favicon: String(t.favicon || ''), rating: Math.max(1, Math.min(5, Number(t.rating) || 3)), pricing: PRICING.includes(t.pricing) ? t.pricing : 'Freemium', tags: Array.isArray(t.tags) ? t.tags.map(x => String(x).slice(0, 30)).slice(0, 8) : [], notes: String(t.notes || '').slice(0, 1000), favorite: Boolean(t.favorite), addedAt: Number(t.addedAt) || Date.now(), quality: Number.isFinite(Number(t.quality)) ? Math.max(0, Math.min(100, Number(t.quality))) : null, costPerTask: Number.isFinite(Number(t.costPerTask)) ? Number(t.costPerTask) : null, poweredBy: t.poweredBy ? String(t.poweredBy).slice(0, 120) : null, qualityLabel: t.qualityLabel ? String(t.qualityLabel).slice(0, 60) : null })).map(syncRating).filter(t => imported.categories.some(c => String(c.id) === t.categoryId)), notes: String(imported.notes || '').slice(0, 5000), favoritesOrder: Array.isArray(imported.favoritesOrder) ? imported.favoritesOrder.map(String) : [], preferences: { ...makeSeed().preferences, ...(imported.preferences || {}) } }; openConfirm({ title: 'Restore this backup?', text: `It contains ${normalized.tools.length} tools and ${normalized.categories.length} categories. Restoring will replace the current local library.`, confirmLabel: 'Restore backup', onConfirm: () => { persist(); snapshot('before-import'); state = normalized; query = ''; closeModal(); persist(); render(); showToast('Backup restored successfully.'); } }); } catch { showToast('That file is not a valid backup. Nothing changed.'); } }; reader.readAsText(file); });
 
-window.addEventListener('pagehide', persist);
+window.addEventListener('pagehide', () => { persist(); if (pushPending && syncKey()) { try { navigator.sendBeacon(syncUrl(), new Blob([JSON.stringify(state)], { type: 'text/plain' })); pushPending = false; } catch { /* the retry timer covers it next time */ } } });
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') syncPull({ announce: true }); });
 if (restoredFromBackup) { persist(); setTimeout(() => showToast(`Library was empty — restored the automatic backup from ${new Date(restoredFromBackup.savedAt).toLocaleString()}.`), 300); }
 document.addEventListener('keydown', event => { if (event.key === '/' && !activeModal && !['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)) { event.preventDefault(); document.querySelector('#global-search')?.focus(); } if (event.key === 'Escape' && activeModal) closeModal(); });
 document.addEventListener('click', event => { if (openMenuId && !event.target.closest('.category-menu-wrap')) { openMenuId = null; render(); } });
 
 render();
+lastFingerprint = JSON.stringify({ ...state, savedAt: 0 });
+syncPull({ announce: true });

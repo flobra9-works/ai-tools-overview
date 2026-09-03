@@ -15,7 +15,7 @@ npm run dev
 Then open `http://localhost:5173`. Set `PORT` to use a different port, e.g. `PORT=5273 npm run dev`.
 
 No install step, account, or database is required, and the app itself works offline. All data is stored in the
-browser's local storage. The one thing that goes online is the **Add/Edit tool** form: when you enter a website
+browser's local storage. Two things go online. Cloud sync (only when linked with a key) talks to your own n8n webhook. And the **Add/Edit tool** form: when you enter a website
 (or a name it can't match locally) it asks [microlink.io](https://microlink.io) — falling back to
 [r.jina.ai](https://jina.ai/reader) — for that page's own description, and DuckDuckGo's instant-answer API to
 resolve a bare name to its official site. Nothing else is sent anywhere.
@@ -41,6 +41,11 @@ The included GitHub Actions workflow deploys this static application to GitHub P
   next visit. Storage is per browser and per site address, so a different browser, device, or
   private window starts fresh; use Export/Import to carry a library across.
 - JSON export and validated, confirmation-protected import
+- **Cloud sync across devices** via an n8n webhook: open the dashboard through your sync link
+  (`…/#sync=KEY`) once per browser and every change is pushed to a single row in the
+  `ai_tools_library` data table; every linked browser pulls the latest copy on open and whenever
+  the tab comes back into view. Last write wins by save time. The **Sync** button shows the state,
+  the link to bookmark elsewhere, and lets you unlink. Without a key the app is purely local.
 - Automatic local backups: the last four full copies are kept in the browser (one daily, one before
   any import or restore, one whenever a save would halve the library). If the main storage key is
   ever empty, the newest backup is restored on load. **Backups** in the top bar lists and restores
